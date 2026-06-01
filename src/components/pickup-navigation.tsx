@@ -3,7 +3,10 @@ import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Path } from 'react-native-svg';
+
+import { RouteMap } from '@/components/route-map';
+import { estimateMinutes, formatKm, haversineMeters, openTurnByTurn } from '@/hooks/maps';
+import type { Delivery } from '@/hooks/rider-api';
 
 const COLORS = {
   mapBg: '#f1f3f4',
@@ -24,31 +27,33 @@ const AVATAR_URI =
 type PickupNavigationProps = {
   onArrived: () => void;
   onBack: () => void;
+  delivery?: Delivery | null;
+  riderCoords?: { lat: number; lng: number } | null;
 };
 
-export function PickupNavigation({ onArrived, onBack }: PickupNavigationProps) {
+export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: PickupNavigationProps) {
   const insets = useSafeAreaInsets();
+
+  const pickup = delivery ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng } : null;
+  const pickupAddress = delivery?.pickup_address ?? 'Pickup location';
+  const customerName = delivery?.users?.full_name ?? 'Customer';
+  const toPickup = pickup && riderCoords ? haversineMeters(riderCoords, pickup) : null;
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      {/* Map background */}
-      <View style={styles.map} pointerEvents="none">
-        <Svg width="100%" height="100%" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
-          <Path d="M-50 150 Q200 120 450 150" stroke={COLORS.road} strokeWidth={40} fill="none" />
-          <Path d="M100 -50 L120 850" stroke={COLORS.road} strokeWidth={35} fill="none" />
-          <Path d="M280 -50 L260 850" stroke={COLORS.road} strokeWidth={35} fill="none" />
-          <Path
-            d="M70 350 Q200 280 330 160"
-            stroke={COLORS.primaryContainer}
-            strokeWidth={6}
-            strokeDasharray="10,8"
-            fill="none"
+      {/* Live map */}
+      <View style={styles.map}>
+        {pickup ? (
+          <RouteMap
+            origin={riderCoords ?? null}
+            destination={pickup}
+            style={StyleSheet.absoluteFill}
+            originLabel="You"
+            destinationLabel="Pickup"
           />
-          <Circle cx={335} cy={155} r={8} fill={COLORS.primaryContainer} stroke="#000" strokeWidth={3} />
-          <Circle cx={68} cy={352} r={8} fill={COLORS.primaryContainer} stroke="#000" strokeWidth={6} />
-        </Svg>
+        ) : null}
       </View>
 
       {/* Top navigation */}
@@ -57,18 +62,27 @@ export function PickupNavigation({ onArrived, onBack }: PickupNavigationProps) {
           <MaterialIcons name="arrow-back" size={22} color={COLORS.onSurface} />
         </Pressable>
 
-        <View style={styles.instructionCard}>
+        <Pressable
+          style={styles.instructionCard}
+          onPress={() => pickup && openTurnByTurn(pickup, pickupAddress)}
+          accessibilityRole="button"
+          accessibilityLabel="Open turn-by-turn navigation">
           <View style={styles.instructionIcon}>
-            <MaterialIcons name="turn-right" size={32} color={COLORS.onSurface} />
+            <MaterialIcons name="navigation" size={32} color={COLORS.onSurface} />
           </View>
           <View style={styles.instructionText}>
-            <Text style={styles.instructionTitle}>Turn right in 200 m</Text>
-            <Text style={styles.instructionSubtitle}>Khayaban-e-Shahbaz</Text>
+            <Text style={styles.instructionTitle}>Navigate to pickup</Text>
+            <Text style={styles.instructionSubtitle} numberOfLines={1}>
+              {pickupAddress}
+            </Text>
           </View>
-        </View>
+          <MaterialIcons name="open-in-new" size={20} color={COLORS.onSurfaceVariant} />
+        </Pressable>
 
         <View style={styles.statusPill}>
-          <Text style={styles.statusText}>4 min • 2.4 km</Text>
+          <Text style={styles.statusText}>
+            {estimateMinutes(toPickup)} • {formatKm(toPickup)}
+          </Text>
         </View>
       </View>
 
@@ -80,8 +94,10 @@ export function PickupNavigation({ onArrived, onBack }: PickupNavigationProps) {
           <View style={styles.customerInfo}>
             <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
             <View style={styles.customerText}>
-              <Text style={styles.customerName}>Ahmed Khan</Text>
-              <Text style={styles.customerMeta}>Pickup · House 24, DHA Phase 5</Text>
+              <Text style={styles.customerName}>{customerName}</Text>
+              <Text style={styles.customerMeta} numberOfLines={1}>
+                Pickup · {pickupAddress}
+              </Text>
             </View>
           </View>
 

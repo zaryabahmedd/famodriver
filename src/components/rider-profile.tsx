@@ -41,6 +41,7 @@ type RiderProfileProps = {
   onEditProfile?: () => void;
   onNotifications?: () => void;
   onLogout?: () => void;
+  onDeleteAccount?: () => void;
 };
 
 export function RiderProfile({
@@ -49,6 +50,7 @@ export function RiderProfile({
   onEditProfile,
   onNotifications,
   onLogout,
+  onDeleteAccount,
 }: RiderProfileProps) {
   const insets = useSafeAreaInsets();
 
@@ -116,6 +118,13 @@ export function RiderProfile({
             style={({ pressed }) => [styles.logoutBtn, pressed && styles.logoutBtnPressed]}
             accessibilityRole="button">
             <Text style={styles.logoutText}>Logout</Text>
+          </Pressable>
+          <Pressable
+            onPress={onDeleteAccount}
+            style={({ pressed }) => [styles.deleteBtn, pressed && styles.deleteBtnPressed]}
+            accessibilityRole="button">
+            <MaterialIcons name="delete-outline" size={20} color={COLORS.error} />
+            <Text style={styles.deleteText}>Delete account</Text>
           </Pressable>
           <Text style={styles.version}>Version 4.12.0</Text>
         </View>
@@ -209,5 +218,18 @@ const styles = StyleSheet.create({
   },
   logoutBtnPressed: { borderColor: 'rgba(186,26,26,0.2)' },
   logoutText: { fontSize: 16, fontWeight: '600', color: COLORS.error },
+  deleteBtn: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.error,
+  },
+  deleteBtnPressed: { backgroundColor: 'rgba(186,26,26,0.06)' },
+  deleteText: { fontSize: 16, fontWeight: '700', color: COLORS.error },
   version: { fontSize: 14, color: COLORS.onSurfaceVariant },
 });

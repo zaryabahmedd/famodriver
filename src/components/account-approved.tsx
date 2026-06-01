@@ -76,7 +76,7 @@ export function AccountApproved({ onStart, onClose }: AccountApprovedProps) {
         {/* Illustration */}
         <Animated.View style={[styles.illustrationWrap, floatStyle]}>
           <Image
-            source={require('@/assets/images/tmp_d2075363-9527-4132-9f55-5e91c2daf065.png')}
+            source={require('@/assets/images/Bike4.png')}
             style={styles.illustration}
             contentFit="contain"
           />
@@ -156,10 +156,17 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   illustrationWrap: {
-    backgroundColor: COLORS.surfaceLowest,
+    width: 260,
+    height: 220,
+    maxWidth: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(251, 209, 3, 0.12)',
     borderRadius: 9999,
+    overflow: 'hidden',
+    padding: 10,
   },
-  illustration: { width: 160, height: 160 },
+  illustration: { width: '100%', height: '100%' },
   message: { alignItems: 'center', gap: 12, maxWidth: 360 },
   title: {
     fontSize: 22,

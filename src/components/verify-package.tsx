@@ -3,6 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { Delivery } from '@/hooks/rider-api';
+
 const COLORS = {
   surface: '#fbf9f9',
   surfaceLowest: '#ffffff',
@@ -33,10 +35,26 @@ const ROWS: Row[] = [
 type VerifyPackageProps = {
   onContinue: () => void;
   onBack: () => void;
+  delivery?: Delivery | null;
 };
 
-export function VerifyPackage({ onContinue, onBack }: VerifyPackageProps) {
+export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackageProps) {
   const insets = useSafeAreaInsets();
+  const weightLabel = delivery?.weight != null ? `${delivery.weight} kg` : '—';
+  const rows: Row[] = [
+    {
+      label: 'Pickup',
+      expected: delivery?.pickup_address ?? '—',
+      actual: delivery?.pickup_address ?? '—',
+    },
+    {
+      label: 'Drop-off',
+      expected: delivery?.dropoff_address ?? '—',
+      actual: delivery?.dropoff_address ?? '—',
+    },
+    { label: 'Weight', expected: weightLabel, actual: weightLabel },
+  ];
+  const hasDiscrepancy = rows.some((r) => r.discrepancy);
 
   return (
     <View style={styles.root}>
@@ -64,14 +82,14 @@ export function VerifyPackage({ onContinue, onBack }: VerifyPackageProps) {
             <Text style={styles.colHeaderText}>Actual</Text>
           </View>
 
-          {ROWS.map((row) => (
+          {rows.map((row) => (
             <View
               key={row.label}
               style={[styles.row, row.discrepancy && styles.rowDiscrepancy]}>
               <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={styles.rowValue}>{row.expected}</Text>
+              <Text style={styles.rowValue} numberOfLines={1}>{row.expected}</Text>
               <View style={styles.actualCell}>
-                <Text style={[styles.rowValue, row.discrepancy && styles.rowValueError]}>
+                <Text style={[styles.rowValue, row.discrepancy && styles.rowValueError]} numberOfLines={1}>
                   {row.actual}
                 </Text>
                 {row.discrepancy && (
@@ -83,14 +101,16 @@ export function VerifyPackage({ onContinue, onBack }: VerifyPackageProps) {
         </View>
 
         {/* Warning alert */}
-        <View style={styles.alert}>
-          <View style={styles.alertIcon}>
-            <MaterialIcons name="warning" size={18} color="#000000" />
+        {hasDiscrepancy && (
+          <View style={styles.alert}>
+            <View style={styles.alertIcon}>
+              <MaterialIcons name="warning" size={18} color="#000000" />
+            </View>
+            <Text style={styles.alertText}>
+              Weight differs slightly. Continue or request fare update from the customer.
+            </Text>
           </View>
-          <Text style={styles.alertText}>
-            Weight differs slightly. Continue or request fare update from the customer.
-          </Text>
-        </View>
+        )}
 
         {/* Photo confirmation */}
         <View style={styles.photoWrap}>

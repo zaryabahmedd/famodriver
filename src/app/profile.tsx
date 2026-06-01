@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 import { BankAccount } from '@/components/bank-account';
+import { DeleteAccount } from '@/components/delete-account';
 import { Documents } from '@/components/documents';
 import { EditProfile } from '@/components/edit-profile';
 import { JobHistory } from '@/components/job-history';
@@ -22,7 +23,8 @@ type Screen =
   | 'notifications'
   | 'reviews'
   | 'wallet'
-  | 'history';
+  | 'history'
+  | 'deleteAccount';
 
 export default function ProfileScreen() {
   const { logout } = useAuth();
@@ -44,6 +46,7 @@ export default function ProfileScreen() {
     if (label === 'Reviews') setActive('reviews');
     else if (label === 'Wallet') setActive('wallet');
     else if (label === 'Job History') setActive('history');
+    else if (label === 'Vehicle Details') setActive('vehicle');
   };
 
   return (
@@ -54,6 +57,7 @@ export default function ProfileScreen() {
         onEditProfile={() => setActive('editProfile')}
         onNotifications={() => setActive('notifications')}
         onLogout={() => setActive('settings')}
+        onDeleteAccount={() => setActive('deleteAccount')}
       />
 
       {active === 'vehicle' && <VehicleInfo onBack={close} />}
@@ -65,6 +69,7 @@ export default function ProfileScreen() {
       {active === 'reviews' && <Reviews onBack={close} />}
       {active === 'wallet' && <Wallet onBack={close} />}
       {active === 'history' && <JobHistory onBack={close} />}
+      {active === 'deleteAccount' && <DeleteAccount onBack={close} onDeleted={logout} />}
 
       {menuOpen && (
         <Sidebar onClose={() => setMenuOpen(false)} onNavigate={handleSidebarNavigate} />

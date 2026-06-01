@@ -1,7 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { getRiderProfile } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -18,15 +21,6 @@ const COLORS = {
   successContainer: '#d7f5e1',
 };
 
-const DETAILS: { label: string; value: string }[] = [
-  { label: 'Vehicle type', value: 'Motorcycle' },
-  { label: 'Make & model', value: 'Honda CG 125' },
-  { label: 'Year', value: '2022' },
-  { label: 'Color', value: 'Red' },
-  { label: 'Plate number', value: 'LEB-2384' },
-  { label: 'Registration', value: 'Lahore, Punjab' },
-];
-
 type VehicleInfoProps = {
   onBack?: () => void;
   onEdit?: () => void;
@@ -34,6 +28,48 @@ type VehicleInfoProps = {
 
 export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
   const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(true);
+  const [vehicle, setVehicle] = useState<{
+    type: string;
+    brand: string;
+    model: string;
+    year: string;
+    plate: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const rider = await getRiderProfile();
+      if (active) {
+        if (rider) {
+          setVehicle({
+            type: rider.vehicle_type ?? '',
+            brand: rider.vehicle_brand ?? '',
+            model: rider.vehicle_model ?? '',
+            year: rider.vehicle_year ?? '',
+            plate: rider.vehicle_plate ?? '',
+          });
+        }
+        setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const title = vehicle
+    ? [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || vehicle.type || 'Vehicle'
+    : 'Vehicle';
+
+  const details: { label: string; value: string }[] = [
+    { label: 'Vehicle type', value: vehicle?.type || '—' },
+    { label: 'Brand', value: vehicle?.brand || '—' },
+    { label: 'Model', value: vehicle?.model || '—' },
+    { label: 'Year', value: vehicle?.year || '—' },
+    { label: 'Plate number', value: vehicle?.plate || '—' },
+  ];
 
   return (
     <View style={styles.root}>
@@ -48,29 +84,31 @@ export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
         </Pressable>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
-          <View style={styles.heroIcon}>
-            <MaterialIcons name="two-wheeler" size={40} color={COLORS.onPrimaryContainer} />
-          </View>
-          <Text style={styles.heroTitle}>Honda CG 125</Text>
-          <View style={styles.verifiedPill}>
-            <MaterialIcons name="verified" size={16} color={COLORS.success} />
-            <Text style={styles.verifiedText}>Verified</Text>
-          </View>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={COLORS.primary} />
         </View>
-
-        <View style={styles.card}>
-          {DETAILS.map((item, i) => (
-            <View key={item.label} style={[styles.row, i > 0 && styles.rowBorder]}>
-              <Text style={styles.rowLabel}>{item.label}</Text>
-              <Text style={styles.rowValue}>{item.value}</Text>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}>
+          <View style={styles.hero}>
+            <View style={styles.heroIcon}>
+              <MaterialIcons name="two-wheeler" size={40} color={COLORS.onPrimaryContainer} />
             </View>
-          ))}
-        </View>
-      </ScrollView>
+            <Text style={styles.heroTitle}>{title}</Text>
+          </View>
+
+          <View style={styles.card}>
+            {details.map((item, i) => (
+              <View key={item.label} style={[styles.row, i > 0 && styles.rowBorder]}>
+                <Text style={styles.rowLabel}>{item.label}</Text>
+                <Text style={styles.rowValue}>{item.value}</Text>
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -112,6 +150,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   heroTitle: { fontSize: 22, fontWeight: '700', color: COLORS.onSurface },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   verifiedPill: {
     flexDirection: 'row',
     alignItems: 'center',

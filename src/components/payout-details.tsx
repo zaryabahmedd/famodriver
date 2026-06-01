@@ -13,6 +13,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { submitRiderApplication, updateRiderProfile } from '@/hooks/rider-account-api';
+
+
 const COLORS = {
   background: '#fbf9f9',
   surface: '#fbf9f9',
@@ -31,6 +34,7 @@ const COLORS = {
 const BANKS = ['Access', 'GTBank', 'Zenith', 'UBA', 'First Bank', 'OPay'];
 
 type PayoutDetailsProps = {
+  riderId?: string;
   onContinue: () => void;
   onBack?: () => void;
 };
@@ -42,10 +46,38 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
   const [accountNumber, setAccountNumber] = useState('0123456789');
   const [bvn, setBvn] = useState('');
   const [focused, setFocused] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const selectChip = (name: string) => {
     setSelectedChip(name);
     setBank(name);
+  };
+
+  const handleContinue = async () => {
+    if (!bank || !accountNumber || !bvn) {
+      alert('Please fill in all layout details (Bank, Account Number, BVN/NIN).');
+      return;
+    }
+    setLoading(true);
+    try {
+      const rider = await updateRiderProfile({
+        payout_bank: bank,
+        payout_account_number: accountNumber,
+        payout_bvn: bvn,
+      });
+      if (!rider) {
+        alert('Could not save your payout details. Please try again.');
+        return;
+      }
+      const submitted = await submitRiderApplication();
+      if (!submitted) {
+        alert('Could not submit your application. Please try again.');
+        return;
+      }
+      onContinue();
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -63,11 +95,11 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
             accessibilityLabel="Go back">
             <MaterialIcons name="arrow-back" size={24} color={COLORS.primary} />
           </Pressable>
-          <Text style={styles.headerTitle}>Sign up · Step 4/4</Text>
+          <Text style={styles.headerTitle}>Sign up · Step 5/5</Text>
           <View style={styles.headerSpacer} />
         </View>
         <View style={styles.progressTrack}>
-          <View style={styles.progressFill} />
+          <View style={[styles.progressFill, { width: '100%' }]} />
         </View>
       </View>
 
@@ -183,11 +215,12 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable
-          onPress={onContinue}
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={handleContinue}
+          disabled={loading}
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed, loading && { opacity: 0.6 }]}
           accessibilityRole="button">
-          <Text style={styles.ctaText}>Continue</Text>
-          <MaterialIcons name="arrow-forward" size={20} color="#000000" />
+          <Text style={styles.ctaText}>{loading ? 'Saving...' : 'Continue'}</Text>
+          {!loading && <MaterialIcons name="arrow-forward" size={20} color="#000000" />}
         </Pressable>
       </View>
     </View>

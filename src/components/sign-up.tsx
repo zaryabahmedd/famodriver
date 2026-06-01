@@ -30,7 +30,7 @@ const COLORS = {
 };
 
 type Field = {
-  key: 'name' | 'email' | 'phone';
+  key: 'name' | 'email' | 'phone' | 'password';
   label: string;
   placeholder: string;
   icon: keyof typeof MaterialIcons.glyphMap;
@@ -61,19 +61,38 @@ const FIELDS: Field[] = [
     icon: 'phone',
     keyboardType: 'phone-pad',
   },
+  {
+    key: 'password',
+    label: 'Password',
+    placeholder: 'Choose a secure password',
+    icon: 'lock',
+    autoCapitalize: 'none',
+  },
 ];
 
 type SignUpProps = {
-  onContinue: () => void;
+  onContinue: (values: { name: string; email: string; phone: string; password: string }) => void;
   onBack?: () => void;
   onLogIn?: () => void;
 };
 
 export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
   const insets = useSafeAreaInsets();
-  const [values, setValues] = useState({ name: '', email: '', phone: '' });
+  const [values, setValues] = useState({ name: '', email: '', phone: '', password: '' });
   const [agreed, setAgreed] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
+
+  const handleContinue = () => {
+    if (!values.name || !values.email || !values.phone || !values.password) {
+      alert('Please fill in all fields.');
+      return;
+    }
+    if (!agreed) {
+      alert('Please agree to the Terms of Service and/or Privacy Policy.');
+      return;
+    }
+    onContinue(values);
+  };
 
   return (
     <View style={styles.root}>
@@ -150,6 +169,7 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
                     placeholderTextColor={COLORS.outline}
                     keyboardType={field.keyboardType}
                     autoCapitalize={field.autoCapitalize}
+                    secureTextEntry={field.key === 'password'}
                     style={styles.input}
                   />
                 </View>
@@ -173,7 +193,7 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
 
             {/* Primary CTA */}
             <Pressable
-              onPress={onContinue}
+              onPress={handleContinue}
               style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
               accessibilityRole="button">
               <Text style={styles.ctaText}>Continue</Text>

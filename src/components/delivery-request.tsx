@@ -1,7 +1,9 @@
+import { estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
+import type { Delivery, DeliveryOffer } from '@/hooks/rider-api';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { DeclineJob } from './decline-job';
@@ -29,24 +31,68 @@ const PARCEL_URI =
 
 const RING_RADIUS = 70;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
-const TOTAL_SECONDS = 15;
-
-const CHIPS = [
-  { icon: 'devices' as const, label: 'Electronics' },
-  { label: 'M · 5.5kg' },
-  { label: '12.4 km' },
-  { label: '~32 min' },
-];
+const TOTAL_SECONDS = 35;
 
 type DeliveryRequestProps = {
   onAccept: () => void;
   onDecline: () => void;
+  offer?: DeliveryOffer | null;
+  delivery?: Delivery | null;
 };
 
-export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
+export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: DeliveryRequestProps) {
   const insets = useSafeAreaInsets();
-  const [seconds, setSeconds] = useState(TOTAL_SECONDS);
+  const deadline = useMemo(
+    () => (offer ? new Date(offer.expires_at).getTime() : Date.now() + TOTAL_SECONDS * 1000),
+    [offer],
+  );
+  const [seconds, setSeconds] = useState(() =>
+    Math.max(0, Math.min(TOTAL_SECONDS, Math.round((deadline - Date.now()) / 1000))),
+  );
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const pickup = delivery?.pickup_address ?? 'Pickup point';
+  const dropoff = delivery?.dropoff_address ?? 'Drop-off point';
+  const dropMeters =
+    delivery != null
+      ? haversineMeters(
+          { lat: delivery.pickup_lat, lng: delivery.pickup_lng },
+          { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng },
+        )
+      : null;
+  const awayMeters = offer?.distance_meters ?? null;
+  const earnings = formatPrice(delivery?.price);
+  const chips = [
+    { icon: 'inventory-2' as const, label: delivery?.weight != null ? `${delivery.weight} kg` : 'Parcel' },
+    { label: formatKm(dropMeters) },
+    { label: estimateMinutes(dropMeters) },
+  ];
+
+  const SHEET_DRAG = 300;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const lastOffset = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
+      onPanResponderMove: (_, g) => {
+        let next = lastOffset.current + g.dy;
+        if (next < 0) next = 0;
+        if (next > SHEET_DRAG) next = SHEET_DRAG;
+        translateY.setValue(next);
+      },
+      onPanResponderRelease: (_, g) => {
+        const next = lastOffset.current + g.dy;
+        const target = next > SHEET_DRAG / 2 ? SHEET_DRAG : 0;
+        lastOffset.current = target;
+        Animated.spring(translateY, {
+          toValue: target,
+          useNativeDriver: true,
+          bounciness: 4,
+        }).start();
+      },
+    })
+  ).current;
 
   useEffect(() => {
     if (confirmOpen) return;
@@ -58,7 +104,8 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
     return () => clearTimeout(id);
   }, [seconds, onDecline, confirmOpen]);
 
-  const dashOffset = RING_CIRCUMFERENCE - (seconds / TOTAL_SECONDS) * RING_CIRCUMFERENCE;
+  const dashOffset =
+    RING_CIRCUMFERENCE - (Math.min(seconds, TOTAL_SECONDS) / TOTAL_SECONDS) * RING_CIRCUMFERENCE;
 
   return (
     <View style={styles.root}>
@@ -85,8 +132,11 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
       </View>
 
       {/* Bottom sheet */}
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 16 }]}>
-        <View style={styles.handle} />
+      <Animated.View
+        style={[styles.sheet, { paddingBottom: insets.bottom + 16, transform: [{ translateY }] }]}>
+        <View style={styles.handleZone} {...panResponder.panHandlers}>
+          <View style={styles.handle} />
+        </View>
 
         <ScrollView
           contentContainerStyle={styles.sheetContent}
@@ -97,7 +147,9 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
             <Image source={{ uri: PARCEL_URI }} style={styles.bannerImg} contentFit="cover" />
             <View style={styles.bannerText}>
               <Text style={styles.bannerTitle}>New delivery request</Text>
-              <Text style={styles.bannerSubtitle}>DHA Phase 5 to Gulberg III</Text>
+              <Text style={styles.bannerSubtitle} numberOfLines={1}>
+                {pickup} → {dropoff}
+              </Text>
             </View>
           </View>
 
@@ -126,16 +178,18 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
               />
             </Svg>
             <View style={styles.ringCenter}>
-              <Text style={styles.earnings}>Rs 466</Text>
+              <Text style={styles.earnings}>{earnings}</Text>
               <Text style={styles.timerText}>{seconds}s</Text>
             </View>
           </View>
 
           {/* Route */}
           <View style={styles.route}>
-            <View>
-              <Text style={styles.routePlace}>DHA Phase 5</Text>
-              <Text style={styles.routeMeta}>2.4 km away</Text>
+            <View style={styles.routeRight}>
+              <Text style={styles.routePlace} numberOfLines={1}>
+                {pickup}
+              </Text>
+              <Text style={styles.routeMeta}>{formatKm(awayMeters)} away</Text>
             </View>
             <View style={styles.routeLine}>
               <View style={styles.routeDotStart} />
@@ -143,14 +197,16 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
               <View style={styles.routeDotEnd} />
             </View>
             <View style={styles.routeRight}>
-              <Text style={styles.routePlace}>Gulberg III</Text>
-              <Text style={styles.routeMeta}>10 km drop</Text>
+              <Text style={styles.routePlace} numberOfLines={1}>
+                {dropoff}
+              </Text>
+              <Text style={styles.routeMeta}>{formatKm(dropMeters)} drop</Text>
             </View>
           </View>
 
           {/* Chips */}
           <View style={styles.chips}>
-            {CHIPS.map((c) => (
+            {chips.map((c) => (
               <View key={c.label} style={styles.chip}>
                 {c.icon ? (
                   <MaterialIcons name={c.icon} size={18} color={COLORS.onSurface} />
@@ -176,7 +232,7 @@ export function DeliveryRequest({ onAccept, onDecline }: DeliveryRequestProps) {
             </Pressable>
           </View>
         </ScrollView>
-      </View>
+      </Animated.View>
 
       {confirmOpen ? (
         <DeclineJob onConfirm={onDecline} onCancel={() => setConfirmOpen(false)} />
@@ -197,7 +253,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: '60%',
+    height: '100%',
     backgroundColor: COLORS.mapBg,
   },
   mapLabel: {
@@ -230,12 +286,17 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  handleZone: {
+    width: '100%',
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingBottom: 16,
+  },
   handle: {
     width: 48,
     height: 6,
     borderRadius: 3,
     backgroundColor: COLORS.surfaceContainerHighest,
-    marginBottom: 16,
   },
   sheetContent: { paddingHorizontal: 24, paddingBottom: 8, gap: 24, width: '100%' },
   banner: {

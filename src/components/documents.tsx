@@ -1,7 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { getDocumentUrl, getRiderProfile, type DocType } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -27,16 +31,15 @@ type DocStatus = 'Verified' | 'Pending' | 'Expired';
 type Doc = {
   icon: keyof typeof MaterialIcons.glyphMap;
   title: string;
-  subtitle: string;
-  status: DocStatus;
+  column: 'license_front_path' | 'license_back_path' | 'selfie_path' | 'selfie_with_license_path';
+  docType: DocType;
 };
 
 const DOCS: Doc[] = [
-  { icon: 'badge', title: 'National ID Card', subtitle: 'Uploaded · 12 Jan 2025', status: 'Verified' },
-  { icon: 'directions-car', title: "Driver's License", subtitle: 'Expires · 04 Aug 2027', status: 'Verified' },
-  { icon: 'article', title: 'Vehicle Registration', subtitle: 'Uploaded · 12 Jan 2025', status: 'Verified' },
-  { icon: 'health-and-safety', title: 'Insurance Certificate', subtitle: 'Under review', status: 'Pending' },
-  { icon: 'verified-user', title: 'Police Clearance', subtitle: 'Expired · 01 Mar 2026', status: 'Expired' },
+  { icon: 'badge', title: "Driver's License (Front)", column: 'license_front_path', docType: 'license_front' },
+  { icon: 'badge', title: "Driver's License (Back)", column: 'license_back_path', docType: 'license_back' },
+  { icon: 'person', title: 'Selfie', column: 'selfie_path', docType: 'selfie' },
+  { icon: 'how-to-reg', title: 'Selfie with License', column: 'selfie_with_license_path', docType: 'selfie_with_license' },
 ];
 
 const STATUS_STYLE: Record<DocStatus, { bg: string; fg: string; icon: keyof typeof MaterialIcons.glyphMap }> = {
@@ -51,6 +54,60 @@ type DocumentsProps = {
 
 export function Documents({ onBack }: DocumentsProps) {
   const insets = useSafeAreaInsets();
+  const [loading, setLoading] = useState(true);
+  const [paths, setPaths] = useState<Record<Doc['column'], string | null>>({
+    license_front_path: null,
+    license_back_path: null,
+    selfie_path: null,
+    selfie_with_license_path: null,
+  });
+  // Short-lived signed URLs used only to render the thumbnails.
+  const [urls, setUrls] = useState<Record<Doc['column'], string | null>>({
+    license_front_path: null,
+    license_back_path: null,
+    selfie_path: null,
+    selfie_with_license_path: null,
+  });
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const rider = await getRiderProfile();
+      if (!active) {
+        return;
+      }
+      if (!rider) {
+        setLoading(false);
+        return;
+      }
+      const nextPaths: Record<Doc['column'], string | null> = {
+        license_front_path: rider.license_front_path ?? null,
+        license_back_path: rider.license_back_path ?? null,
+        selfie_path: rider.selfie_path ?? null,
+        selfie_with_license_path: rider.selfie_with_license_path ?? null,
+      };
+      setPaths(nextPaths);
+      setLoading(false);
+
+      // Resolve a signed view URL for each uploaded document.
+      await Promise.all(
+        DOCS.map(async (doc) => {
+          const path = nextPaths[doc.column];
+          if (!path) {
+            return;
+          }
+          const ext = path.split('.').pop() || 'jpg';
+          const signed = await getDocumentUrl(doc.docType, ext);
+          if (active && signed) {
+            setUrls((prev) => ({ ...prev, [doc.column]: signed }));
+          }
+        }),
+      );
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -63,38 +120,44 @@ export function Documents({ onBack }: DocumentsProps) {
         <View style={styles.iconBtn} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}>
-        {DOCS.map((doc) => {
-          const s = STATUS_STYLE[doc.status];
-          return (
-            <Pressable
-              key={doc.title}
-              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-              accessibilityRole="button">
-              <View style={styles.docIcon}>
-                <MaterialIcons name={doc.icon} size={24} color={COLORS.onSurface} />
-              </View>
-              <View style={styles.docBody}>
-                <Text style={styles.docTitle}>{doc.title}</Text>
-                <Text style={styles.docSubtitle}>{doc.subtitle}</Text>
-              </View>
-              <View style={[styles.statusPill, { backgroundColor: s.bg }]}>
-                <MaterialIcons name={s.icon} size={14} color={s.fg} />
-                <Text style={[styles.statusText, { color: s.fg }]}>{doc.status}</Text>
-              </View>
-            </Pressable>
-          );
-        })}
-
-        <Pressable
-          style={({ pressed }) => [styles.uploadBtn, pressed && styles.uploadBtnPressed]}
-          accessibilityRole="button">
-          <MaterialIcons name="upload-file" size={20} color={COLORS.onPrimaryContainer} />
-          <Text style={styles.uploadText}>Upload new document</Text>
-        </Pressable>
-      </ScrollView>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator color={COLORS.primary} />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}>
+          {DOCS.map((doc) => {
+            const uploaded = !!paths[doc.column];
+            const uri = urls[doc.column];
+            const status: DocStatus = uploaded ? 'Verified' : 'Pending';
+            const s = STATUS_STYLE[status];
+            return (
+              <Pressable
+                key={doc.column}
+                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                accessibilityRole="button">
+                <View style={styles.docIcon}>
+                  {uri ? (
+                    <Image source={{ uri }} style={styles.docThumb} contentFit="cover" />
+                  ) : (
+                    <MaterialIcons name={doc.icon} size={24} color={COLORS.onSurface} />
+                  )}
+                </View>
+                <View style={styles.docBody}>
+                  <Text style={styles.docTitle}>{doc.title}</Text>
+                  <Text style={styles.docSubtitle}>{uploaded ? 'Uploaded' : 'Not uploaded'}</Text>
+                </View>
+                <View style={[styles.statusPill, { backgroundColor: s.bg }]}>
+                  <MaterialIcons name={s.icon} size={14} color={s.fg} />
+                  <Text style={[styles.statusText, { color: s.fg }]}>{uploaded ? 'Uploaded' : 'Missing'}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -144,22 +207,13 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceContainerHigh,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  docThumb: { width: '100%', height: '100%' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   docBody: { flex: 1, gap: 2 },
   docTitle: { fontSize: 15, fontWeight: '600', color: COLORS.onSurface },
   docSubtitle: { fontSize: 13, color: COLORS.onSurfaceVariant },
   statusPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 9999 },
   statusText: { fontSize: 12, fontWeight: '700' },
-  uploadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: COLORS.primaryContainer,
-    marginTop: 8,
-  },
-  uploadBtnPressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
-  uploadText: { fontSize: 15, fontWeight: '700', color: COLORS.onPrimaryContainer },
 });

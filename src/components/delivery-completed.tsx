@@ -3,6 +3,9 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
+import type { Delivery } from '@/hooks/rider-api';
+
 const COLORS = {
   surface: '#fbf9f9',
   surfaceLowest: '#ffffff',
@@ -18,10 +21,18 @@ const COLORS = {
 type DeliveryCompletedProps = {
   onHome: () => void;
   onBack: () => void;
+  delivery?: Delivery | null;
 };
 
-export function DeliveryCompleted({ onHome, onBack }: DeliveryCompletedProps) {
+export function DeliveryCompleted({ onHome, onBack, delivery }: DeliveryCompletedProps) {
   const insets = useSafeAreaInsets();
+  const distanceMeters =
+    delivery != null
+      ? haversineMeters(
+          { lat: delivery.pickup_lat, lng: delivery.pickup_lng },
+          { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng },
+        )
+      : null;
 
   return (
     <View style={styles.root}>
@@ -57,22 +68,18 @@ export function DeliveryCompleted({ onHome, onBack }: DeliveryCompletedProps) {
         <View style={styles.earningsCard}>
           <View style={styles.accent} />
           <Text style={styles.earnedLabel}>You earned</Text>
-          <Text style={styles.earnedValue}>Rs 466</Text>
-          <View style={styles.tipPill}>
-            <MaterialIcons name="favorite" size={16} color={COLORS.primary} />
-            <Text style={styles.tipText}>+ Rs 100 tip from Sara</Text>
-          </View>
+          <Text style={styles.earnedValue}>{formatPrice(delivery?.price)}</Text>
         </View>
 
         {/* Summary bento */}
         <View style={styles.summaryRow}>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Distance</Text>
-            <Text style={styles.summaryValue}>4.2 km</Text>
+            <Text style={styles.summaryValue}>{formatKm(distanceMeters)}</Text>
           </View>
           <View style={styles.summaryCard}>
             <Text style={styles.summaryLabel}>Time</Text>
-            <Text style={styles.summaryValue}>24 min</Text>
+            <Text style={styles.summaryValue}>{estimateMinutes(distanceMeters)}</Text>
           </View>
         </View>
       </ScrollView>

@@ -7,6 +7,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { Onboarding } from '@/components/onboarding';
 import { SignUpFlow } from '@/components/sign-up-flow';
+import { clearRiderSession } from '@/hooks/rider-session';
 import { AuthContext } from '@/hooks/use-auth';
 
 const ONBOARDING_KEY = 'famo.onboardingComplete';
@@ -45,17 +46,30 @@ export default function TabLayout() {
   const logout = () => {
     setAuthDone(false);
     AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
+    clearRiderSession();
+  };
+
+  const renderContent = () => {
+    if (onboardingDone === null || authDone === null) {
+      return null;
+    }
+
+    if (!onboardingDone) {
+      return <Onboarding onDone={completeOnboarding} />;
+    }
+
+    if (!authDone) {
+      return <SignUpFlow onComplete={completeAuth} />;
+    }
+
+    return <AppTabs />;
   };
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthContext.Provider value={{ logout }}>
+        {renderContent()}
         <AnimatedSplashOverlay />
-        <AppTabs />
-        {onboardingDone === true && authDone === false && (
-          <SignUpFlow onComplete={completeAuth} />
-        )}
-        {onboardingDone === false && <Onboarding onDone={completeOnboarding} />}
       </AuthContext.Provider>
     </ThemeProvider>
   );

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "famo",
+    "name": "FAMO Rider",
     "slug": "famo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,15 +8,13 @@
     "scheme": "famo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/images/icon.png"
     },
     "android": {
       "package": "com.famo.rider",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false
     },
@@ -26,6 +24,14 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "FAMO needs access to your camera so you can take photos of your documents.",
+          "photosPermission": "FAMO needs access to your photos so you can upload your documents.",
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -47,9 +53,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "64af2c13-a99f-4418-b73c-9fdc862a10b4"
+        "projectId": "f85acbac-db13-4f78-a9ae-88c6728416bd"
       }
     },
-    "owner": "quicklyride"
+    "owner": "zaryabahmad124"
   }
 }

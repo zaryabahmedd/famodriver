@@ -1,8 +1,8 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompleteDelivery } from '@/components/complete-delivery';
@@ -14,8 +14,15 @@ import { Notifications } from '@/components/notifications';
 import { PickupNavigation } from '@/components/pickup-navigation';
 import { Reviews } from '@/components/reviews';
 import { Sidebar } from '@/components/sidebar';
+import { VehicleInfo } from '@/components/vehicle-info';
 import { VerifyPackage } from '@/components/verify-package';
 import { Wallet } from '@/components/wallet';
+import { getStoredRiderId } from '@/hooks/rider-session';
+import { useAuth } from '@/hooks/use-auth';
+import { useRiderJobs } from '@/hooks/use-rider-jobs';
+import { useRiderLocation } from '@/hooks/use-rider-location';
+
+type JobPhase = 'pickup' | 'verify' | 'transit' | 'complete' | 'completed' | null;
 
 const COLORS = {
   background: '#f8f8f6',
@@ -91,19 +98,67 @@ function useTypewriter(tips: string[]) {
 
 export function RiderHome() {
   const insets = useSafeAreaInsets();
-  const [online, setOnline] = useState(true);
-  const [requestOpen, setRequestOpen] = useState(false);
-  const [pickupOpen, setPickupOpen] = useState(false);
-  const [verifyOpen, setVerifyOpen] = useState(false);
-  const [transitOpen, setTransitOpen] = useState(false);
-  const [completeOpen, setCompleteOpen] = useState(false);
-  const [completedOpen, setCompletedOpen] = useState(false);
+  const { logout } = useAuth();
+  const [riderId, setRiderId] = useState<string | null>(null);
+  const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(null);
+  const [jobPhase, setJobPhase] = useState<JobPhase>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(false);
   const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [vehicleOpen, setVehicleOpen] = useState(false);
   const tipText = useTypewriter(TIPS);
+
+  const location = useRiderLocation({ riderId, activeDeliveryId });
+  const online = location.online;
+  const jobs = useRiderJobs({ riderId, online });
+
+  // Resolve the rider session id (custom auth -> stored id from login).
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const id = await getStoredRiderId();
+      if (active) {
+        if (!id) {
+          // If no stored rider ID is present, we are bypass-logged in on an unauthenticated
+          // or corrupted session state. Automatically trigger logout to clear the view.
+          logout();
+          return;
+        }
+        setRiderId(id);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [logout]);
+
+  // Keep the location hook in sync with the active job (drives is_available + broadcast).
+  useEffect(() => {
+    setActiveDeliveryId(jobs.activeDelivery?.id ?? null);
+  }, [jobs.activeDelivery?.id]);
+
+  // Enter / resume the job UI when an active delivery exists.
+  useEffect(() => {
+    if (jobs.activeDelivery && jobPhase === null) {
+      setJobPhase(jobs.activeDelivery.status === 'picked_up' ? 'transit' : 'pickup');
+    }
+  }, [jobs.activeDelivery, jobPhase]);
+
+  const toggleOnline = useCallback(
+    async (next: boolean) => {
+      if (next) {
+        const ok = await location.goOnline();
+        if (!ok && location.error) {
+          Alert.alert('Status Error', location.error);
+        }
+      } else {
+        await location.goOffline();
+      }
+    },
+    [location],
+  );
 
   return (
     <View style={styles.root}>
@@ -123,14 +178,18 @@ export function RiderHome() {
 
         <View style={styles.toggle}>
           <Pressable
-            onPress={() => setOnline(false)}
+            onPress={() => toggleOnline(false)}
+            disabled={location.starting}
             style={[styles.toggleBtn, !online && styles.toggleBtnActive]}>
             <Text style={[styles.toggleText, !online && styles.toggleTextActive]}>Offline</Text>
           </Pressable>
           <Pressable
-            onPress={() => setOnline(true)}
+            onPress={() => toggleOnline(true)}
+            disabled={location.starting}
             style={[styles.toggleBtn, online && styles.toggleBtnActive]}>
-            <Text style={[styles.toggleText, online && styles.toggleTextActive]}>Online</Text>
+            <Text style={[styles.toggleText, online && styles.toggleTextActive]}>
+              {location.starting ? 'Starting…' : 'Online'}
+            </Text>
           </Pressable>
         </View>
 
@@ -186,70 +245,71 @@ export function RiderHome() {
         </View>
       </ScrollView>
 
-      {online && (
-        <Pressable
-          onPress={() => setRequestOpen(true)}
-          style={[styles.requestFab, { bottom: insets.bottom + 24 }]}
-          accessibilityRole="button">
-          <MaterialIcons name="local-shipping" size={22} color={COLORS.onPrimaryContainer} />
-          <Text style={styles.requestFabText}>New request</Text>
-        </Pressable>
-      )}
-
-      {requestOpen && (
+      {jobs.pendingOffer && !jobs.activeDelivery && (
         <DeliveryRequest
-          onAccept={() => {
-            setRequestOpen(false);
-            setPickupOpen(true);
+          offer={jobs.pendingOffer}
+          delivery={jobs.offerDelivery}
+          onAccept={async () => {
+            const ok = await jobs.acceptOffer();
+            if (ok) setJobPhase('pickup');
           }}
-          onDecline={() => setRequestOpen(false)}
+          onDecline={() => {
+            void jobs.declineOffer();
+          }}
         />
       )}
 
-      {pickupOpen && (
+      {jobPhase === 'pickup' && jobs.activeDelivery && (
         <PickupNavigation
-          onArrived={() => {
-            setPickupOpen(false);
-            setVerifyOpen(true);
-          }}
-          onBack={() => setPickupOpen(false)}
+          delivery={jobs.activeDelivery}
+          riderCoords={location.coords}
+          onArrived={() => setJobPhase('verify')}
+          onBack={() => setJobPhase('pickup')}
         />
       )}
 
-      {verifyOpen && (
+      {jobPhase === 'verify' && jobs.activeDelivery && (
         <VerifyPackage
-          onContinue={() => {
-            setVerifyOpen(false);
-            setTransitOpen(true);
+          delivery={jobs.activeDelivery}
+          onContinue={async () => {
+            const ok = await jobs.markPickedUp();
+            if (ok) setJobPhase('transit');
           }}
-          onBack={() => setVerifyOpen(false)}
+          onBack={() => setJobPhase('pickup')}
         />
       )}
 
-      {transitOpen && (
+      {jobPhase === 'transit' && jobs.activeDelivery && (
         <InTransit
-          onArrived={() => {
-            setTransitOpen(false);
-            setCompleteOpen(true);
-          }}
-          onBack={() => setTransitOpen(false)}
+          delivery={jobs.activeDelivery}
+          riderCoords={location.coords}
+          onArrived={() => setJobPhase('complete')}
+          onBack={() => setJobPhase('transit')}
         />
       )}
 
-      {completeOpen && (
+      {jobPhase === 'complete' && jobs.activeDelivery && (
         <CompleteDelivery
-          onConfirm={() => {
-            setCompleteOpen(false);
-            setCompletedOpen(true);
+          delivery={jobs.activeDelivery}
+          onConfirm={async () => {
+            const ok = await jobs.markDelivered();
+            if (ok) setJobPhase('completed');
           }}
-          onBack={() => setCompleteOpen(false)}
+          onBack={() => setJobPhase('transit')}
         />
       )}
 
-      {completedOpen && (
+      {jobPhase === 'completed' && (
         <DeliveryCompleted
-          onHome={() => setCompletedOpen(false)}
-          onBack={() => setCompletedOpen(false)}
+          delivery={jobs.activeDelivery}
+          onHome={() => {
+            setJobPhase(null);
+            jobs.finishJob();
+          }}
+          onBack={() => {
+            setJobPhase(null);
+            jobs.finishJob();
+          }}
         />
       )}
 
@@ -261,6 +321,8 @@ export function RiderHome() {
 
       {historyOpen && <JobHistory onBack={() => setHistoryOpen(false)} />}
 
+      {vehicleOpen && <VehicleInfo onBack={() => setVehicleOpen(false)} />}
+
       {menuOpen && (
         <Sidebar
           onClose={() => setMenuOpen(false)}
@@ -268,6 +330,7 @@ export function RiderHome() {
             if (label === 'Reviews') setReviewsOpen(true);
             else if (label === 'Wallet') setWalletOpen(true);
             else if (label === 'Job History') setHistoryOpen(true);
+            else if (label === 'Vehicle Details') setVehicleOpen(true);
           }}
         />
       )}
@@ -401,21 +464,4 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(251,209,3,0.4)',
   },
   statHighlightValue: { fontSize: 20, fontWeight: '800', color: COLORS.onPrimaryFixedVariant },
-  requestFab: {
-    position: 'absolute',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 9999,
-    backgroundColor: COLORS.primaryContainer,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  requestFabText: { fontSize: 16, fontWeight: '700', color: COLORS.onPrimaryContainer },
 });

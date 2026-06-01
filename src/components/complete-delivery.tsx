@@ -15,6 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
+import type { Delivery } from '@/hooks/rider-api';
+
 const COLORS = {
   background: '#fbf9f9',
   surface: '#fbf9f9',
@@ -37,11 +39,12 @@ const OTP_LENGTH = 4;
 type CompleteDeliveryProps = {
   onConfirm: () => void;
   onBack: () => void;
+  delivery?: Delivery | null;
 };
 
 export function CompleteDelivery({ onConfirm, onBack }: CompleteDeliveryProps) {
   const insets = useSafeAreaInsets();
-  const [otp, setOtp] = useState<string[]>(['8', '4', '1', '']);
+  const [otp, setOtp] = useState<string[]>(['', '', '', '']);
   const inputs = useRef<(TextInput | null)[]>([]);
 
   const handleChange = (text: string, index: number) => {

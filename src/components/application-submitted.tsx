@@ -69,7 +69,7 @@ export function ApplicationSubmitted({ onContinue, onBack }: ApplicationSubmitte
         {/* Illustration */}
         <View style={styles.illustration}>
           <View style={styles.aura} />
-          <Animated.View style={floatStyle}>
+          <Animated.View style={[styles.bikeFloat, floatStyle]}>
             <Image
               source={require('@/assets/images/Bike4.png')}
               style={styles.bike}
@@ -184,7 +184,13 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     backgroundColor: 'rgba(251, 209, 3, 0.12)',
   },
-  bike: { width: '100%', maxWidth: 320, height: 280 },
+  bikeFloat: {
+    width: 320,
+    height: 280,
+    maxWidth: '100%',
+    zIndex: 1,
+  },
+  bike: { width: '100%', height: '100%' },
   message: { alignItems: 'center', gap: 12 },
   title: {
     fontSize: 22,

@@ -1,16 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useEffect, useRef } from 'react';
-import {
-    Animated,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
-} from 'react-native';
+import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useAuth } from '@/hooks/use-auth';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -52,6 +46,7 @@ type SidebarProps = {
 
 export function Sidebar({ onClose, onNavigate }: SidebarProps) {
   const insets = useSafeAreaInsets();
+  const { logout } = useAuth();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -139,7 +134,10 @@ export function Sidebar({ onClose, onNavigate }: SidebarProps) {
             </Pressable>
 
             <Pressable
-              onPress={onClose}
+              onPress={() => {
+                onClose();
+                logout();
+              }}
               style={({ pressed }) => [styles.navItem, pressed && styles.logoutPressed]}
               accessibilityRole="button">
               <MaterialIcons name="logout" size={24} color={COLORS.error} />

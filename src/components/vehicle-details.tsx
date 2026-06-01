@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { updateRiderProfile } from '@/hooks/rider-account-api';
+
 const COLORS = {
   background: '#fbf9f9',
   surface: '#fbf9f9',
@@ -33,14 +35,13 @@ type Vehicle = {
   label: string;
   tag: string;
   icon: keyof typeof MaterialIcons.glyphMap;
-  active: boolean;
 };
 
 const VEHICLES: Vehicle[] = [
-  { key: 'ebike', label: 'Electric Bike', tag: 'ACTIVE NOW', icon: 'moped', active: true },
-  { key: 'motorbike', label: 'Motorbike', tag: 'FUTURE PHASE', icon: 'two-wheeler', active: false },
-  { key: 'car', label: 'Car', tag: 'FUTURE PHASE', icon: 'directions-car', active: false },
-  { key: 'van', label: 'Van', tag: 'FUTURE PHASE', icon: 'airport-shuttle', active: false },
+  { key: 'ebike', label: 'Electric Bike', tag: 'ELECTRIC', icon: 'moped' },
+  { key: 'motorbike', label: 'Motorbike', tag: 'PETROL', icon: 'two-wheeler' },
+  { key: 'car', label: 'Car', tag: '4 WHEELS', icon: 'directions-car' },
+  { key: 'van', label: 'Van', tag: 'CARGO', icon: 'airport-shuttle' },
 ];
 
 type FieldKey = 'brand' | 'model' | 'year' | 'plate';
@@ -62,6 +63,7 @@ const FIELDS: Field[] = [
 ];
 
 type VehicleDetailsProps = {
+  riderId?: string;
   onContinue: () => void;
   onBack?: () => void;
 };
@@ -76,6 +78,32 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
     plate: '',
   });
   const [focused, setFocused] = useState<FieldKey | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleContinue = async () => {
+    if (!values.brand || !values.model || !values.year || !values.plate) {
+      alert('Please fill in all vehicle fields.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const vehicleType = VEHICLES.find((v) => v.key === selected)?.label ?? 'Electric Bike';
+      const rider = await updateRiderProfile({
+        vehicle_type: vehicleType,
+        vehicle_brand: values.brand,
+        vehicle_model: values.model,
+        vehicle_year: values.year,
+        vehicle_plate: values.plate,
+      });
+      if (!rider) {
+        alert('Could not save your vehicle details. Please try again.');
+        return;
+      }
+      onContinue();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -92,9 +120,9 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
           <MaterialIcons name="chevron-left" size={26} color={COLORS.onSurface} />
         </Pressable>
         <View style={styles.stepWrap}>
-          <Text style={styles.stepText}>SIGN UP · STEP 3/4</Text>
+          <Text style={styles.stepText}>SIGN UP · STEP 4/5</Text>
           <View style={styles.progressTrack}>
-            <View style={styles.progressFill} />
+            <View style={[styles.progressFill, { width: '80%' }]} />
           </View>
         </View>
       </View>
@@ -111,7 +139,7 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
           <View style={styles.heading}>
             <Text style={styles.title}>Vehicle details</Text>
             <Text style={styles.subtitle}>
-              FAMO rider onboarding is currently for electric bikes only.
+              Select your vehicle type and enter its details.
             </Text>
           </View>
 
@@ -122,12 +150,11 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
             contentContainerStyle={styles.vehicleRow}
             style={styles.vehicleScroll}>
             {VEHICLES.map((v) => {
-              const isSelected = selected === v.key && v.active;
+              const isSelected = selected === v.key;
               return (
                 <Pressable
                   key={v.key}
-                  disabled={!v.active}
-                  onPress={() => v.active && setSelected(v.key)}
+                  onPress={() => setSelected(v.key)}
                   style={[
                     styles.vehicleCard,
                     isSelected ? styles.vehicleCardActive : styles.vehicleCardDisabled,
@@ -194,11 +221,12 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
         <Pressable
-          onPress={onContinue}
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
+          onPress={handleContinue}
+          disabled={loading}
+          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed, loading && { opacity: 0.6 }]}
           accessibilityRole="button">
-          <Text style={styles.ctaText}>Continue</Text>
-          <MaterialIcons name="arrow-forward" size={20} color="#000000" />
+          <Text style={styles.ctaText}>{loading ? 'Saving...' : 'Continue'}</Text>
+          {!loading && <MaterialIcons name="arrow-forward" size={20} color="#000000" />}
         </Pressable>
       </View>
     </View>

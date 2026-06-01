@@ -4,7 +4,10 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Path } from 'react-native-svg';
+
+import { RouteMap } from '@/components/route-map';
+import { estimateMinutes, formatKm, haversineMeters, openTurnByTurn } from '@/hooks/maps';
+import type { Delivery } from '@/hooks/rider-api';
 import { CallScreen } from './call-screen';
 import { Chat } from './chat';
 
@@ -30,36 +33,37 @@ const AVATAR_URI =
 type InTransitProps = {
   onArrived: () => void;
   onBack: () => void;
+  delivery?: Delivery | null;
+  riderCoords?: { lat: number; lng: number } | null;
 };
 
-export function InTransit({ onArrived, onBack }: InTransitProps) {
+export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransitProps) {
   const insets = useSafeAreaInsets();
   const [chatOpen, setChatOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
+
+  const dropoff = delivery ? { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng } : null;
+  const pickup = delivery ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng } : null;
+  const dropoffAddress = delivery?.dropoff_address ?? 'Drop-off location';
+  const customerName = delivery?.users?.full_name ?? 'Recipient';
+  const toDropoff = dropoff && riderCoords ? haversineMeters(riderCoords, dropoff) : null;
 
   return (
     <View style={styles.root}>
       <StatusBar style="dark" />
 
-      {/* Map background */}
-      <View style={styles.map} pointerEvents="none">
-        <Svg width="100%" height="100%" viewBox="0 0 400 800" preserveAspectRatio="xMidYMid slice">
-          <Path d="M-50 150 Q200 120 450 150" stroke={COLORS.road} strokeWidth={40} fill="none" />
-          <Path d="M100 -50 L120 850" stroke={COLORS.road} strokeWidth={35} fill="none" />
-          <Path d="M280 -50 L260 850" stroke={COLORS.road} strokeWidth={35} fill="none" />
-          <Path
-            d="M50 450 Q150 400 200 420 T350 250"
-            stroke={COLORS.primaryContainer}
-            strokeWidth={5}
-            strokeDasharray="8,12"
-            strokeLinecap="round"
-            fill="none"
+      {/* Live map */}
+      <View style={styles.map}>
+        {dropoff ? (
+          <RouteMap
+            origin={riderCoords ?? null}
+            destination={dropoff}
+            via={pickup}
+            style={StyleSheet.absoluteFill}
+            originLabel="You"
+            destinationLabel="Drop-off"
           />
-          <Circle cx={50} cy={450} r={6} fill={COLORS.onSurface} />
-          <Circle cx={50} cy={450} r={3} fill={COLORS.primaryContainer} />
-          <Circle cx={350} cy={250} r={6} fill={COLORS.onSurface} />
-          <Circle cx={350} cy={250} r={3} fill={COLORS.primaryContainer} />
-        </Svg>
+        ) : null}
       </View>
 
       {/* Top navigation instruction card */}
@@ -68,22 +72,29 @@ export function InTransit({ onArrived, onBack }: InTransitProps) {
           <MaterialIcons name="arrow-back" size={22} color={COLORS.onSurface} />
         </Pressable>
 
-        <View style={styles.instructionCard}>
+        <Pressable
+          style={styles.instructionCard}
+          onPress={() => dropoff && openTurnByTurn(dropoff, dropoffAddress)}
+          accessibilityRole="button"
+          accessibilityLabel="Open turn-by-turn navigation">
           <View style={styles.instructionIcon}>
-            <MaterialIcons name="north" size={28} color={COLORS.onPrimaryContainer} />
+            <MaterialIcons name="navigation" size={28} color={COLORS.onPrimaryContainer} />
           </View>
           <View style={styles.instructionText}>
-            <Text style={styles.instructionTitle}>Continue 1.2 km</Text>
-            <Text style={styles.instructionSubtitle}>Main Boulevard, Gulberg</Text>
+            <Text style={styles.instructionTitle}>Navigate to drop-off</Text>
+            <Text style={styles.instructionSubtitle} numberOfLines={1}>
+              {dropoffAddress}
+            </Text>
           </View>
-        </View>
+          <MaterialIcons name="open-in-new" size={20} color={COLORS.onSurfaceVariant} />
+        </Pressable>
 
         {/* Status chips */}
         <View style={styles.chips}>
           <View style={styles.etaPill}>
-            <Text style={styles.etaText}>14 min</Text>
+            <Text style={styles.etaText}>{estimateMinutes(toDropoff)}</Text>
             <View style={styles.dot} />
-            <Text style={styles.etaText}>10 km</Text>
+            <Text style={styles.etaText}>{formatKm(toDropoff)}</Text>
           </View>
           <View style={styles.statusBadge}>
             <Text style={styles.statusBadgeText}>In transit</Text>
@@ -99,8 +110,10 @@ export function InTransit({ onArrived, onBack }: InTransitProps) {
           <View style={styles.customerInfo}>
             <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
             <View style={styles.customerText}>
-              <Text style={styles.customerName}>Sara Ali</Text>
-              <Text style={styles.customerMeta}>Drop · MM Alam Road, Block C</Text>
+              <Text style={styles.customerName}>{customerName}</Text>
+              <Text style={styles.customerMeta} numberOfLines={1}>
+                Drop · {dropoffAddress}
+              </Text>
             </View>
           </View>
 

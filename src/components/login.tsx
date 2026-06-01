@@ -15,6 +15,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { GoogleIcon } from '@/components/google-icon';
+import { BACKEND_URL, callBackend } from '@/hooks/backend-client';
+import { setRiderSession } from '@/hooks/rider-session';
 
 const COLORS = {
   background: '#fbf9f9',
@@ -33,17 +35,67 @@ const LOGO_URI =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuA5P3-Ty1oktdSZt17KS9WCWsISnijjmrFzEV2vSkor-TNwXu2TkgJXRV_EarITA6nN0GYjRuNgD8ZhTdXAmXvMVeiR_ZXJ4Qodyo4Ph0qfuwSzXKnFaPBFiLYpvc7KLZAT90Fm1I3tSvmTtOuWwD-QaMtFkB0KGOZZMzQ2X1xmPCpKe5xCrhft-NJUhgCOQNuXZr5MV1ba-4UVttgd6Cd-E5Tbeu_t8fR59s_SWsZI3Xx5ktR1La9glgSeJCNnhhd_-ZcDErqRZZE';
 
 type LoginProps = {
+  note?: string | null;
   onLogin: () => void;
   onSignUp?: () => void;
   onForgotPassword?: () => void;
   onBack?: () => void;
 };
 
-export function Login({ onLogin, onSignUp, onForgotPassword, onBack }: LoginProps) {
+export function Login({ note, onLogin, onSignUp, onForgotPassword, onBack }: LoginProps) {
   const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!email || !password) {
+      alert('Please fill in both email and password.');
+      return;
+    }
+    setLoading(true);
+    console.log('[Login] Attempting login for:', email.trim().toLowerCase());
+    try {
+      // Authenticate against the Node backend. Passwords are bcrypt-verified
+      // server-side; on success we get an opaque session token (30-day life)
+      // which is stored in the keystore and sent as a Bearer header to the
+      // other rider-* endpoints.
+      const urlToTest = `${BACKEND_URL}/rider-auth`;
+      const { data, error } = await callBackend('rider-auth', {
+        action: 'login',
+        email: email.trim().toLowerCase(),
+        password,
+      });
+
+      if (error || !data?.ok || !data?.token) {
+        const reason = (data?.error as string | undefined) ?? error?.message;
+        console.error('[Login] Login failed:', { error, data, reason });
+        if (reason === 'invalid_credentials' || reason === 'login_failed') {
+          alert('Incorrect email or password.');
+        } else if (reason === 'timeout') {
+          alert(`Connection timed out when reaching backend at ${urlToTest}.\n\nPlease ensure your Node.js backend is running at that address and accessible by this device.`);
+        } else {
+          alert(`Could not log in.\nDetails: ${reason}\nURL: ${urlToTest}`);
+        }
+        setLoading(false);
+        return;
+      }
+
+      console.log('[Login] Login successful. Saving session for rider:', data.rider_id);
+      await setRiderSession({
+        token: data.token as string,
+        riderId: data.rider_id as string,
+        expiresAt: data.expires_at as string,
+      });
+      onLogin();
+    } catch (err: any) {
+      console.error('[Login] Unexpected error during login flow:', err);
+      alert(`An unexpected error occurred during login. Please try again.\n\nError: ${err?.message || err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.root}>
@@ -69,6 +121,13 @@ export function Login({ onLogin, onSignUp, onForgotPassword, onBack }: LoginProp
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>Log in to continue delivering with FAMMO.</Text>
           </View>
+
+          {note ? (
+            <View style={styles.noteBox}>
+              <MaterialIcons name="info-outline" size={20} color="#715d00" />
+              <Text style={styles.noteText}>{note}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.form}>
             <View style={styles.field}>
@@ -119,10 +178,11 @@ export function Login({ onLogin, onSignUp, onForgotPassword, onBack }: LoginProp
             </Pressable>
 
             <Pressable
-              onPress={onLogin}
-              style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
+              onPress={handleLogin}
+              disabled={loading}
+              style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed, loading && { opacity: 0.6 }]}
               accessibilityRole="button">
-              <Text style={styles.primaryText}>Log in</Text>
+              <Text style={styles.primaryText}>{loading ? 'Logging in...' : 'Log in'}</Text>
             </Pressable>
 
             <View style={styles.dividerRow}>
@@ -226,4 +286,21 @@ const styles = StyleSheet.create({
   },
   footerText: { fontSize: 14, color: COLORS.onSurfaceVariant },
   footerLink: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  noteBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#fffbe5',
+    borderColor: '#715d00',
+    borderWidth: 1,
+    borderRadius: 8,
+    marginTop: -8,
+  },
+  noteText: {
+    color: '#715d00',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+  },
 });

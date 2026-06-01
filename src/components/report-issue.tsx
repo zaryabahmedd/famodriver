@@ -1,7 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import {
+    Alert,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -49,8 +51,28 @@ export function ReportIssue({ onBack, onSubmit, initialCategory }: ReportIssuePr
   const [category, setCategory] = useState<string | null>(initialCategory ?? null);
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
-  const [attached, setAttached] = useState(false);
+  const [attachment, setAttachment] = useState<{ uri: string; name: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
+
+  const pickScreenshot = async () => {
+    if (attachment) {
+      setAttachment(null);
+      return;
+    }
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow photo library access to attach a screenshot.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setAttachment({ uri: asset.uri, name: asset.fileName ?? 'screenshot.png' });
+    }
+  };
 
   const canSubmit = !!category && subject.trim().length > 0 && description.trim().length > 0;
 
@@ -160,16 +182,16 @@ export function ReportIssue({ onBack, onSubmit, initialCategory }: ReportIssuePr
           <Text style={styles.counter}>{description.length}/600</Text>
 
           <Pressable
-            onPress={() => setAttached((v) => !v)}
+            onPress={pickScreenshot}
             style={({ pressed }) => [styles.attachBtn, pressed && styles.btnPressed]}
             accessibilityRole="button">
             <MaterialIcons
-              name={attached ? 'check-circle' : 'attach-file'}
+              name={attachment ? 'check-circle' : 'attach-file'}
               size={20}
-              color={attached ? COLORS.success : COLORS.primary}
+              color={attachment ? COLORS.success : COLORS.primary}
             />
-            <Text style={styles.attachText}>
-              {attached ? 'screenshot.png attached' : 'Attach a screenshot (optional)'}
+            <Text style={styles.attachText} numberOfLines={1}>
+              {attachment ? `${attachment.name} attached · tap to remove` : 'Attach a screenshot (optional)'}
             </Text>
           </Pressable>
         </ScrollView>
