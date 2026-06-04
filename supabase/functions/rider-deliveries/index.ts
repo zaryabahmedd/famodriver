@@ -15,7 +15,7 @@ const CORS = {
 };
 
 const DELIVERY_SELECT =
-  "id, user_id, rider_id, status, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, users:user_id ( full_name, phone_number )";
+  "id, user_id, rider_id, status, accepted_at, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, package_category, package_description, package_size, sender_name, sender_phone, recipient_name, recipient_phone, pickup_notes, dropoff_notes, special_instructions, users:user_id ( full_name, phone_number )";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

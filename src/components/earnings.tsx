@@ -42,7 +42,7 @@ const BARS = [
 const METRICS = [
   { label: 'Trips', value: '34' },
   { label: 'Online', value: '22h' },
-  { label: 'Avg Fare', value: 'Rs 410' },
+  { label: 'Avg Fare', value: '₦410' },
 ];
 
 export function Earnings() {
@@ -75,7 +75,7 @@ export function Earnings() {
         <View style={styles.heroCard}>
           <Text style={styles.heroLabel}>Current Earnings</Text>
           <View style={styles.heroRow}>
-            <Text style={styles.heroValue}>Rs 2,450</Text>
+            <Text style={styles.heroValue}>₦2,450</Text>
             <View style={styles.trendPill}>
               <MaterialIcons name="trending-up" size={14} color={COLORS.positive} />
               <Text style={styles.trendText}>+18%</Text>

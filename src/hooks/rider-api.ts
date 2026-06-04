@@ -13,11 +13,15 @@ export type DeliveryCustomer = {
   phone_number: string | null;
 };
 
+export type PackageCategory = 'documents' | 'electronics' | 'fragile' | 'food' | 'other';
+export type PackageSize = 's' | 'm' | 'l' | 'xl';
+
 export type Delivery = {
   id: string;
   user_id: string;
   rider_id: string | null;
   status: DeliveryStatus;
+  accepted_at: string | null;
   pickup_address: string | null;
   pickup_lat: number;
   pickup_lng: number;
@@ -27,14 +31,52 @@ export type Delivery = {
   weight: number | null;
   price: number | null;
   created_at: string;
+  // Order payload written by the customer app (all nullable; old rows are null).
+  package_category: PackageCategory | string | null;
+  package_description: string | null;
+  package_size: PackageSize | string | null;
+  sender_name: string | null;
+  sender_phone: string | null;
+  recipient_name: string | null;
+  recipient_phone: string | null;
+  pickup_notes: string | null;
+  dropoff_notes: string | null;
+  special_instructions: string | null;
   users?: DeliveryCustomer | null;
 };
+
+const PACKAGE_CATEGORY_LABELS: Record<string, string> = {
+  documents: 'Documents',
+  electronics: 'Electronics',
+  fragile: 'Fragile',
+  food: 'Food',
+  other: 'Other',
+};
+
+const PACKAGE_SIZE_LABELS: Record<string, string> = {
+  s: 'Small',
+  m: 'Medium',
+  l: 'Large',
+  xl: 'Extra large',
+};
+
+/** Human-readable package category label, or null when unset. */
+export function formatPackageCategory(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return PACKAGE_CATEGORY_LABELS[value] ?? value;
+}
+
+/** Human-readable package size label, or null when unset. */
+export function formatPackageSize(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return PACKAGE_SIZE_LABELS[value] ?? value;
+}
 
 export type DeliveryOffer = {
   id: string;
   delivery_id: string;
   rider_id: string;
-  status: 'pending' | 'accepted' | 'declined' | 'expired';
+  status: 'pending' | 'accepted' | 'declined' | 'expired' | 'superseded' | 'cancelled';
   distance_meters: number | null;
   offered_at: string;
   expires_at: string;
@@ -124,4 +166,24 @@ export async function updateDeliveryStatus(
   }, { token });
   if (error) return { ok: false, error: data?.error ?? error.message };
   return data as UpdateResult;
+}
+
+export type CancelResult = {
+  ok: boolean;
+  error?: string;
+};
+
+/**
+ * Cancel a just-accepted delivery within the 1-minute grace period. The backend
+ * enforces ownership + the grace window; on success the job is released and
+ * re-dispatched to the next nearest riders.
+ */
+export async function cancelDelivery(deliveryId: string): Promise<CancelResult> {
+  const token = await getRiderToken();
+  if (!token) return { ok: false, error: 'no_session' };
+  const { data, error } = await callBackend<CancelResult>('rider-cancel-delivery', {
+    deliveryId,
+  }, { token });
+  if (error) return { ok: false, error: data?.error ?? error.message };
+  return data as CancelResult;
 }

@@ -53,7 +53,7 @@ const STATS = [
   { icon: 'schedule' as const, label: 'Working Time', value: '4h 20m' },
   { icon: 'straighten' as const, label: 'Distance', value: '42.5 km' },
   { icon: 'task-alt' as const, label: 'Orders', value: '12' },
-  { icon: 'payments' as const, label: 'Earnings', value: 'Rs 3,450', highlight: true },
+  { icon: 'payments' as const, label: 'Earnings', value: '₦3,450', highlight: true },
 ];
 
 function useTypewriter(tips: string[]) {
@@ -145,6 +145,17 @@ export function RiderHome() {
       setJobPhase(jobs.activeDelivery.status === 'picked_up' ? 'transit' : 'pickup');
     }
   }, [jobs.activeDelivery, jobPhase]);
+
+  // Phase 4: the customer cancelled after we accepted. Kill the job UI and
+  // return to the Home (idle) screen, then inform the rider.
+  useEffect(() => {
+    if (jobs.externalCancelTick === 0) return;
+    setJobPhase(null);
+    Alert.alert(
+      'Delivery cancelled',
+      'This delivery was cancelled by the customer. You have been returned to Home.',
+    );
+  }, [jobs.externalCancelTick]);
 
   const toggleOnline = useCallback(
     async (next: boolean) => {
@@ -265,6 +276,14 @@ export function RiderHome() {
           riderCoords={location.coords}
           onArrived={() => setJobPhase('verify')}
           onBack={() => setJobPhase('pickup')}
+          onCancel={async () => {
+            const ok = await jobs.cancelActiveDelivery();
+            if (ok) {
+              setJobPhase(null);
+            } else {
+              Alert.alert('Cannot cancel', 'The 1-minute cancellation window has closed.');
+            }
+          }}
         />
       )}
 

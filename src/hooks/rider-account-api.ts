@@ -2,6 +2,7 @@
 // session token as `Authorization: Bearer <token>` to the Node backend (no
 // Supabase anon key). Document bytes still go to Supabase Storage via a signed
 // upload URL issued by the backend.
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callBackend } from './backend-client';
 import { getRiderToken } from './rider-session';
 import { supabase } from './supabase-client';
@@ -100,19 +101,48 @@ export async function submitRiderApplication(): Promise<boolean> {
 
 export type UploadResult = { ok: boolean; path?: string; error?: string };
 
+/** Decode a base64 string to a byte array without any native module. */
+function base64ToBytes(base64: string): Uint8Array {
+  const clean = base64.replace(/^data:[^;]+;base64,/, '');
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < chars.length; i++) lookup[chars.charCodeAt(i)] = i;
+
+  let bufferLength = Math.floor((clean.length * 3) / 4);
+  if (clean[clean.length - 1] === '=') bufferLength--;
+  if (clean[clean.length - 2] === '=') bufferLength--;
+
+  const bytes = new Uint8Array(bufferLength);
+  let p = 0;
+  for (let i = 0; i < clean.length; i += 4) {
+    const e1 = lookup[clean.charCodeAt(i)];
+    const e2 = lookup[clean.charCodeAt(i + 1)];
+    const e3 = lookup[clean.charCodeAt(i + 2)];
+    const e4 = lookup[clean.charCodeAt(i + 3)];
+    if (p < bufferLength) bytes[p++] = (e1 << 2) | (e2 >> 4);
+    if (p < bufferLength) bytes[p++] = ((e2 & 15) << 4) | (e3 >> 2);
+    if (p < bufferLength) bytes[p++] = ((e3 & 3) << 6) | (e4 & 63);
+  }
+  return bytes;
+}
+
 /**
  * Upload a rider document. Asks the backend for a one-time signed upload URL
- * (which also records the *_path column server-side), then PUTs the file to
- * Supabase Storage with uploadToSignedUrl. The anon key never writes to the
- * bucket.
+ * (which also records the *_path column server-side), then uploads the file to
+ * Supabase Storage with uploadToSignedUrl. The image bytes come from the
+ * ImagePicker asset's base64 (decoded in JS) because fetch(fileUri).blob() is
+ * unreliable on React Native for file:// URIs ("Network request failed").
  */
 export async function uploadRiderDocument(
   docType: DocType,
   fileUri: string,
   contentType?: string,
+  base64?: string | null,
 ): Promise<UploadResult> {
   const token = await getRiderToken();
   if (!token) return { ok: false, error: 'no_session' };
+
+  if (!base64) return { ok: false, error: 'missing_image_data' };
 
   const ext = (fileUri.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
 
@@ -125,12 +155,18 @@ export async function uploadRiderDocument(
     return { ok: false, error: error?.message ?? data?.error ?? 'sign_failed' };
   }
 
-  // Pull the captured file into a blob for the signed upload.
-  const fileBody = await (await fetch(fileUri)).blob();
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(base64);
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'decode_failed' };
+  }
+
+  const resolvedType = contentType ?? `image/${ext === 'jpg' ? 'jpeg' : ext}`;
   const { error: upErr } = await supabase.storage
     .from(DOC_BUCKET)
-    .uploadToSignedUrl(data.path as string, data.token as string, fileBody, {
-      contentType: contentType ?? fileBody.type ?? `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+    .uploadToSignedUrl(data.path as string, data.token as string, bytes, {
+      contentType: resolvedType,
     });
   if (upErr) return { ok: false, error: upErr.message };
 
@@ -181,4 +217,38 @@ export async function verifyRiderPassword(email: string, password: string): Prom
   });
   if (error || !data?.ok || !data?.token) return null;
   return data.token as string;
+}
+
+// --- Profile avatar (device-local) -----------------------------------------
+// The rider backend has no avatar column yet, so the profile photo is persisted
+// on this device via AsyncStorage as a base64 data URI. It survives app
+// restarts and is cleared on logout. Swap to a backend upload once the riders
+// table gains an avatar_path column + signed-upload endpoint.
+const AVATAR_KEY = 'famo.riderAvatar';
+
+/** Read the locally-saved profile photo (data URI), or null if none set. */
+export async function getLocalAvatar(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(AVATAR_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the profile photo on this device as a base64 data URI. */
+export async function saveLocalAvatar(dataUri: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(AVATAR_KEY, dataUri);
+  } catch {
+    // ignore storage errors
+  }
+}
+
+/** Remove the locally-saved profile photo (called on logout). */
+export async function clearLocalAvatar(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(AVATAR_KEY);
+  } catch {
+    // ignore storage errors
+  }
 }

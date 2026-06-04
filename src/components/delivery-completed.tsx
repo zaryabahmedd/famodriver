@@ -3,7 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
+import { calculateFare, estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
 import type { Delivery } from '@/hooks/rider-api';
 
 const COLORS = {
@@ -68,7 +68,7 @@ export function DeliveryCompleted({ onHome, onBack, delivery }: DeliveryComplete
         <View style={styles.earningsCard}>
           <View style={styles.accent} />
           <Text style={styles.earnedLabel}>You earned</Text>
-          <Text style={styles.earnedValue}>{formatPrice(delivery?.price)}</Text>
+          <Text style={styles.earnedValue}>{formatPrice(calculateFare(distanceMeters) ?? delivery?.price)}</Text>
         </View>
 
         {/* Summary bento */}

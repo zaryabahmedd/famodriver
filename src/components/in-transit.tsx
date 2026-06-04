@@ -6,8 +6,9 @@ import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RouteMap } from '@/components/route-map';
-import { estimateMinutes, formatKm, haversineMeters, openTurnByTurn } from '@/hooks/maps';
+import { estimateMinutes, formatDuration, formatKm, haversineMeters, maneuverIcon, openTurnByTurn } from '@/hooks/maps';
 import type { Delivery } from '@/hooks/rider-api';
+import { useTurnByTurn } from '@/hooks/use-navigation';
 import { CallScreen } from './call-screen';
 import { Chat } from './chat';
 
@@ -43,10 +44,20 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
   const [callOpen, setCallOpen] = useState(false);
 
   const dropoff = delivery ? { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng } : null;
-  const pickup = delivery ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng } : null;
   const dropoffAddress = delivery?.dropoff_address ?? 'Drop-off location';
-  const customerName = delivery?.users?.full_name ?? 'Recipient';
+  const recipientName = delivery?.recipient_name ?? delivery?.users?.full_name ?? 'Recipient';
+  const recipientPhone = delivery?.recipient_phone ?? delivery?.users?.phone_number ?? null;
+  const dropoffNotes = delivery?.dropoff_notes?.trim() || null;
   const toDropoff = dropoff && riderCoords ? haversineMeters(riderCoords, dropoff) : null;
+
+  // Live in-app turn-by-turn driven by the rider's GPS.
+  const nav = useTurnByTurn(riderCoords ?? null, dropoff);
+  const navTitle = nav.currentStep?.instruction ?? 'Navigate to drop-off';
+  const navDistance =
+    nav.distanceToManeuver != null ? formatKm(nav.distanceToManeuver) : dropoffAddress;
+  const etaLabel =
+    nav.remainingSeconds != null ? formatDuration(nav.remainingSeconds) : estimateMinutes(toDropoff);
+  const distLabel = nav.remainingMeters != null ? formatKm(nav.remainingMeters) : formatKm(toDropoff);
 
   return (
     <View style={styles.root}>
@@ -58,7 +69,8 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           <RouteMap
             origin={riderCoords ?? null}
             destination={dropoff}
-            via={pickup}
+            routeOverride={nav.polyline}
+            navigation
             style={StyleSheet.absoluteFill}
             originLabel="You"
             destinationLabel="Drop-off"
@@ -78,12 +90,16 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           accessibilityRole="button"
           accessibilityLabel="Open turn-by-turn navigation">
           <View style={styles.instructionIcon}>
-            <MaterialIcons name="navigation" size={28} color={COLORS.onPrimaryContainer} />
+            <MaterialIcons
+              name={maneuverIcon(nav.currentStep?.maneuver ?? null) as any}
+              size={28}
+              color={COLORS.onPrimaryContainer}
+            />
           </View>
           <View style={styles.instructionText}>
-            <Text style={styles.instructionTitle}>Navigate to drop-off</Text>
+            <Text style={styles.instructionTitle} numberOfLines={2}>{navTitle}</Text>
             <Text style={styles.instructionSubtitle} numberOfLines={1}>
-              {dropoffAddress}
+              {navDistance}
             </Text>
           </View>
           <MaterialIcons name="open-in-new" size={20} color={COLORS.onSurfaceVariant} />
@@ -92,9 +108,9 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
         {/* Status chips */}
         <View style={styles.chips}>
           <View style={styles.etaPill}>
-            <Text style={styles.etaText}>{estimateMinutes(toDropoff)}</Text>
+            <Text style={styles.etaText}>{etaLabel}</Text>
             <View style={styles.dot} />
-            <Text style={styles.etaText}>{formatKm(toDropoff)}</Text>
+            <Text style={styles.etaText}>{distLabel}</Text>
           </View>
           <View style={styles.statusBadge}>
             <Text style={styles.statusBadgeText}>In transit</Text>
@@ -110,10 +126,13 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           <View style={styles.customerInfo}>
             <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
             <View style={styles.customerText}>
-              <Text style={styles.customerName}>{customerName}</Text>
+              <Text style={styles.customerName}>{recipientName}</Text>
               <Text style={styles.customerMeta} numberOfLines={1}>
                 Drop · {dropoffAddress}
               </Text>
+              {recipientPhone ? (
+                <Text style={styles.customerMeta} numberOfLines={1}>{recipientPhone}</Text>
+              ) : null}
             </View>
           </View>
 
@@ -134,6 +153,13 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           <Text style={styles.ctaText}>Arrived at drop-off</Text>
           <MaterialIcons name="arrow-forward" size={22} color="#000000" />
         </Pressable>
+
+        {dropoffNotes ? (
+          <View style={styles.notesCard}>
+            <MaterialIcons name="sticky-note-2" size={18} color={COLORS.onSurfaceVariant} />
+            <Text style={styles.notesText}>{dropoffNotes}</Text>
+          </View>
+        ) : null}
       </View>
 
       {chatOpen ? (
@@ -305,4 +331,15 @@ const styles = StyleSheet.create({
   },
   ctaPressed: { opacity: 0.9, transform: [{ scale: 0.95 }] },
   ctaText: { fontSize: 18, fontWeight: '700', color: '#000000' },
+  notesCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+  },
+  notesText: { flex: 1, fontSize: 14, color: COLORS.onSurface, lineHeight: 20 },
 });

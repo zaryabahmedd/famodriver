@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 
@@ -9,9 +9,16 @@ type RouteMapProps = {
   destination: LatLng;
   /** Optional second leg (e.g. pickup -> dropoff) to also show on the map. */
   via?: LatLng | null;
+  /** Precomputed route polyline (e.g. from useTurnByTurn) to draw instead of fetching. */
+  routeOverride?: LatLng[] | null;
   style?: object;
   originLabel?: string;
   destinationLabel?: string;
+  /**
+   * Turn-by-turn mode: tilt into a 3D "course-up" camera that follows the rider
+   * (origin) and rotates toward the road ahead, like Google Maps navigation.
+   */
+  navigation?: boolean;
 };
 
 const COLORS = {
@@ -20,20 +27,70 @@ const COLORS = {
   destination: '#715d00',
 };
 
+// 3D navigation camera tuning.
+const NAV_PITCH = 55;
+const NAV_ZOOM = 17.5;
+const NAV_LOOKAHEAD_M = 30;
+
+/** Compass bearing (deg) from point a to point b. */
+function bearing(a: LatLng, b: LatLng): number {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (Math.atan2(y, x) * 180) / Math.PI;
+}
+
+/**
+ * Heading the rider should face: bearing toward the first route point that is
+ * at least NAV_LOOKAHEAD_M ahead of the rider, so the camera looks "down the
+ * road" rather than jittering on the nearest vertex.
+ */
+function headingAlongRoute(rider: LatLng, route: LatLng[]): number | null {
+  if (route.length < 2) return null;
+  // Find the closest vertex to the rider, then look ahead from there.
+  let nearestIdx = 0;
+  let nearestD = Infinity;
+  for (let i = 0; i < route.length; i++) {
+    const d = haversineMeters(rider, route[i]);
+    if (d < nearestD) {
+      nearestD = d;
+      nearestIdx = i;
+    }
+  }
+  for (let i = nearestIdx; i < route.length; i++) {
+    if (haversineMeters(rider, route[i]) >= NAV_LOOKAHEAD_M) {
+      return bearing(rider, route[i]);
+    }
+  }
+  return bearing(rider, route[route.length - 1]);
+}
+
 /** Native map showing the rider, the destination, and the driving route. */
 export function RouteMap({
   origin,
   destination,
   via,
+  routeOverride,
   style,
   originLabel,
   destinationLabel,
+  navigation = false,
 }: RouteMapProps) {
   const [route, setRoute] = useState<LatLng[]>([]);
+  const mapRef = useRef<MapView | null>(null);
 
   const routeOrigin = origin ?? via ?? destination;
 
   useEffect(() => {
+    // When a route is supplied by the caller (turn-by-turn), draw it directly
+    // and skip the redundant Directions fetch.
+    if (routeOverride && routeOverride.length > 1) {
+      setRoute(routeOverride);
+      return;
+    }
     let cancelled = false;
     void (async () => {
       const pts = await fetchDirections(routeOrigin, destination);
@@ -42,7 +99,7 @@ export function RouteMap({
     return () => {
       cancelled = true;
     };
-  }, [routeOrigin.lat, routeOrigin.lng, destination.lat, destination.lng]);
+  }, [routeOverride, routeOrigin.lat, routeOrigin.lng, destination.lat, destination.lng]);
 
   const region = useMemo(() => {
     const pts = [routeOrigin, destination, ...(via ? [via] : [])];
@@ -61,19 +118,40 @@ export function RouteMap({
     };
   }, [routeOrigin, destination, via]);
 
+  // 3D follow camera: re-aim at the rider each time their GPS or the route
+  // updates, tilting the camera and rotating toward the road ahead.
+  useEffect(() => {
+    if (!navigation || !origin || !mapRef.current) return;
+    const heading = headingAlongRoute(origin, route) ?? 0;
+    mapRef.current.animateCamera(
+      {
+        center: { latitude: origin.lat, longitude: origin.lng },
+        pitch: NAV_PITCH,
+        heading,
+        zoom: NAV_ZOOM,
+      },
+      { duration: 800 },
+    );
+  }, [navigation, origin?.lat, origin?.lng, route]);
+
   return (
     <View style={[styles.container, style]}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={StyleSheet.absoluteFill}
         initialRegion={region}
         showsUserLocation={!!origin}
         showsMyLocationButton={false}
+        showsCompass={navigation}
+        showsBuildings={navigation}
+        pitchEnabled
+        rotateEnabled
         toolbarEnabled={false}>
         {route.length > 1 && (
-          <Polyline coordinates={route.map(toCoord)} strokeColor={COLORS.route} strokeWidth={5} />
+          <Polyline coordinates={route.map(toCoord)} strokeColor={COLORS.route} strokeWidth={navigation ? 8 : 5} />
         )}
-        {origin && (
+        {origin && !navigation && (
           <Marker coordinate={toCoord(origin)} title={originLabel ?? 'You'} pinColor="#2563eb" />
         )}
         {via && (

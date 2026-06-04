@@ -207,7 +207,7 @@ export function Jobs() {
               <View style={styles.earningBlock}>
                 <Text style={styles.earningLabel}>Earning</Text>
                 <Text style={styles.earningValue}>
-                  <Text style={styles.earningCurrency}>Rs </Text>
+                  <Text style={styles.earningCurrency}>₦</Text>
                   {job.earning}
                 </Text>
               </View>

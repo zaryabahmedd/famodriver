@@ -8,20 +8,56 @@
 //
 // Supabase is still used directly for Realtime (offer pushes, live tracking
 // broadcast) and Storage (signed document uploads) — see supabase-client.ts.
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+
+const BACKEND_PORT = 8080;
+
+/**
+ * When running on a physical device in Expo Go, `localhost`/`10.0.2.2` resolve
+ * to the phone itself, not the dev machine. Metro tells the app which host it
+ * was served from (the dev machine's LAN IP), so we reuse that IP to reach the
+ * locally-running backend on the same network.
+ */
+function resolveDevHostIp(): string | null {
+  // hostUri looks like "192.168.1.42:8081" (SDK 49+).
+  const hostUri =
+    (Constants.expoConfig as any)?.hostUri ??
+    (Constants as any)?.expoGoConfig?.debuggerHost ??
+    (Constants.manifest2 as any)?.extra?.expoGo?.debuggerHost ??
+    (Constants as any)?.manifest?.debuggerHost;
+
+  if (typeof hostUri === 'string' && hostUri.length > 0) {
+    const host = hostUri.split(':')[0];
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return host;
+    }
+  }
+  return null;
+}
 
 /**
  * Resolve the backend base URL.
  * - Production / staging: set EXPO_PUBLIC_BACKEND_URL (e.g. the Render URL).
- * - Local dev: Android emulators reach the host machine via 10.0.2.2; iOS
- *   simulators and web use localhost. Port 8080.
+ * - Local dev on a physical device (Expo Go): derive the dev machine's LAN IP
+ *   from the Metro host so the phone can reach the backend over the network.
+ * - Android emulator: reach the host machine via 10.0.2.2.
+ * - iOS simulator / web: localhost. Port 8080.
  */
 function resolveBackendUrl(): string {
   const fromEnv = process.env.EXPO_PUBLIC_BACKEND_URL;
   if (fromEnv && fromEnv.trim().length > 0) {
     return fromEnv.trim().replace(/\/+$/, '');
   }
-  return Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://localhost:8080';
+
+  const devHostIp = resolveDevHostIp();
+  if (devHostIp) {
+    return `http://${devHostIp}:${BACKEND_PORT}`;
+  }
+
+  return Platform.OS === 'android'
+    ? `http://10.0.2.2:${BACKEND_PORT}`
+    : `http://localhost:${BACKEND_PORT}`;
 }
 
 export const BACKEND_URL = resolveBackendUrl();

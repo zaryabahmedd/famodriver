@@ -1,8 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     KeyboardAvoidingView,
     Platform,
     Pressable,
@@ -14,6 +17,13 @@ import {
     type KeyboardTypeOptions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import {
+    getLocalAvatar,
+    getRiderProfile,
+    saveLocalAvatar,
+    updateRiderProfile,
+} from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -30,19 +40,19 @@ const COLORS = {
 const PROFILE_URI =
   'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
-type Field = {
-  key: string;
+type FieldDef = {
+  key: 'full_name' | 'email' | 'phone_number';
   label: string;
-  value: string;
   icon: keyof typeof MaterialIcons.glyphMap;
   keyboardType?: KeyboardTypeOptions;
+  /** Email isn't editable here (backend update accepts name/phone only). */
+  readonly?: boolean;
 };
 
-const FIELDS: Field[] = [
-  { key: 'name', label: 'Full Name', value: 'Rashid Ahmed', icon: 'person' },
-  { key: 'email', label: 'Email Address', value: 'rashid@example.com', icon: 'mail', keyboardType: 'email-address' },
-  { key: 'phone', label: 'Phone Number', value: '+92 300 1234567', icon: 'phone', keyboardType: 'phone-pad' },
-  { key: 'address', label: 'Address', value: 'DHA Phase 5, Lahore', icon: 'home' },
+const FIELDS: FieldDef[] = [
+  { key: 'full_name', label: 'Full Name', icon: 'person' },
+  { key: 'email', label: 'Email Address', icon: 'mail', keyboardType: 'email-address', readonly: true },
+  { key: 'phone_number', label: 'Phone Number', icon: 'phone', keyboardType: 'phone-pad' },
 ];
 
 type EditProfileProps = {
@@ -52,9 +62,88 @@ type EditProfileProps = {
 
 export function EditProfile({ onBack, onSave }: EditProfileProps) {
   const insets = useSafeAreaInsets();
-  const [values, setValues] = useState<Record<string, string>>(
-    Object.fromEntries(FIELDS.map((f) => [f.key, f.value])),
-  );
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({
+    full_name: '',
+    email: '',
+    phone_number: '',
+  });
+  // avatar holds a base64 data URI (newly picked or previously saved) or null.
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  // Load the rider's real profile + any locally-saved photo.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [profile, savedAvatar] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
+      if (!active) return;
+      if (profile) {
+        setValues({
+          full_name: profile.full_name ?? '',
+          email: profile.email ?? '',
+          phone_number: profile.phone_number ?? '',
+        });
+      }
+      if (savedAvatar) setAvatar(savedAvatar);
+      setLoading(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Photo permission needed',
+        'Please allow photo library access in your device settings to change your profile photo.',
+      );
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.6,
+      base64: true,
+    });
+    if (!result.canceled && result.assets?.[0]?.base64) {
+      const asset = result.assets[0];
+      const mime = asset.mimeType ?? 'image/jpeg';
+      setAvatar(`data:${mime};base64,${asset.base64}`);
+    }
+  };
+
+  const handleSave = async () => {
+    if (saving) return;
+    const fullName = values.full_name.trim();
+    if (!fullName) {
+      Alert.alert('Name required', 'Please enter your full name.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateRiderProfile({
+        full_name: fullName,
+        phone_number: values.phone_number.trim() || null,
+      });
+      if (!updated) {
+        Alert.alert('Could not save', 'Your changes were not saved. Please try again.');
+        return;
+      }
+      // Photo is persisted on-device (no backend avatar column yet).
+      if (avatar && avatar.startsWith('data:')) {
+        await saveLocalAvatar(avatar);
+      }
+      onSave?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const avatarSource = avatar ? { uri: avatar } : { uri: PROFILE_URI };
 
   return (
     <View style={styles.root}>
@@ -70,31 +159,43 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        {loading ? (
+          <View style={styles.loadingWrap}>
+            <ActivityIndicator color={COLORS.primary} />
+          </View>
+        ) : (
         <ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
           <View style={styles.avatarSection}>
             <View style={styles.avatarRing}>
-              <Image source={{ uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
-              <Pressable style={styles.cameraBtn} accessibilityRole="button" accessibilityLabel="Change photo">
+              <Image source={avatarSource} style={styles.avatar} contentFit="cover" />
+              <Pressable
+                onPress={pickPhoto}
+                style={styles.cameraBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Change photo">
                 <MaterialIcons name="photo-camera" size={18} color={COLORS.onPrimaryContainer} />
               </Pressable>
             </View>
-            <Text style={styles.changePhoto}>Change photo</Text>
+            <Pressable onPress={pickPhoto} accessibilityRole="button">
+              <Text style={styles.changePhoto}>Change photo</Text>
+            </Pressable>
           </View>
 
           <View style={styles.form}>
             {FIELDS.map((field) => (
               <View key={field.key} style={styles.field}>
                 <Text style={styles.label}>{field.label}</Text>
-                <View style={styles.inputWrap}>
+                <View style={[styles.inputWrap, field.readonly && styles.inputWrapDisabled]}>
                   <MaterialIcons name={field.icon} size={20} color={COLORS.outline} />
                   <TextInput
                     value={values[field.key]}
                     onChangeText={(t) => setValues((v) => ({ ...v, [field.key]: t }))}
                     keyboardType={field.keyboardType}
-                    style={styles.input}
+                    editable={!field.readonly}
+                    style={[styles.input, field.readonly && styles.inputDisabled]}
                     placeholderTextColor={COLORS.outline}
                   />
                 </View>
@@ -102,13 +203,23 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
             ))}
           </View>
         </ScrollView>
+        )}
 
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
           <Pressable
-            onPress={onSave}
-            style={({ pressed }) => [styles.saveBtn, pressed && styles.saveBtnPressed]}
+            onPress={handleSave}
+            disabled={saving || loading}
+            style={({ pressed }) => [
+              styles.saveBtn,
+              (saving || loading) && styles.saveBtnDisabled,
+              pressed && styles.saveBtnPressed,
+            ]}
             accessibilityRole="button">
-            <Text style={styles.saveText}>Save changes</Text>
+            {saving ? (
+              <ActivityIndicator color={COLORS.onPrimaryContainer} />
+            ) : (
+              <Text style={styles.saveText}>Save changes</Text>
+            )}
           </Pressable>
         </View>
       </KeyboardAvoidingView>
@@ -189,6 +300,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   input: { flex: 1, fontSize: 16, color: COLORS.onSurface, paddingVertical: 0 },
+  inputWrapDisabled: { backgroundColor: COLORS.surface, opacity: 0.7 },
+  inputDisabled: { color: COLORS.onSurfaceVariant },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   footer: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -204,5 +318,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   saveBtnPressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
+  saveBtnDisabled: { opacity: 0.6 },
   saveText: { fontSize: 16, fontWeight: '700', color: COLORS.onPrimaryContainer },
 });

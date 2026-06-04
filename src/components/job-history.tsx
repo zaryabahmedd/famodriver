@@ -124,7 +124,7 @@ function JobDetail({ trip, onBack }: { trip: Trip; onBack: () => void }) {
               {trip.status}
             </Text>
           </View>
-          <Text style={styles.detailEarning}>Rs {trip.earning}</Text>
+          <Text style={styles.detailEarning}>₦{trip.earning}</Text>
           <Text style={styles.detailDate}>{trip.date}</Text>
         </View>
 
@@ -247,7 +247,7 @@ export function JobHistory({ onBack }: JobHistoryProps) {
               </View>
 
               <View style={styles.tripFooter}>
-                <Text style={styles.tripEarning}>Rs {trip.earning}</Text>
+                <Text style={styles.tripEarning}>₦{trip.earning}</Text>
                 <View style={styles.tripChevron}>
                   <Text style={styles.tripDetails}>View details</Text>
                   <MaterialIcons name="chevron-right" size={20} color={COLORS.onSurfaceVariant} />

@@ -31,11 +31,11 @@ type Txn = {
 };
 
 const TRANSACTIONS: Txn[] = [
-  { icon: 'local-shipping', title: 'Delivery earnings', date: 'Today · 2:14 PM', amount: '+ Rs 466', positive: true },
-  { icon: 'redeem', title: 'Tip from Sara Ali', date: 'Today · 2:15 PM', amount: '+ Rs 100', positive: true },
-  { icon: 'account-balance', title: 'Cash out to bank', date: 'Yesterday', amount: '- Rs 2,000', positive: false },
-  { icon: 'local-shipping', title: 'Delivery earnings', date: 'Yesterday', amount: '+ Rs 420', positive: true },
-  { icon: 'card-giftcard', title: 'Weekend bonus', date: '2 days ago', amount: '+ Rs 1,000', positive: true },
+  { icon: 'local-shipping', title: 'Delivery earnings', date: 'Today · 2:14 PM', amount: '+ ₦466', positive: true },
+  { icon: 'redeem', title: 'Tip from Sara Ali', date: 'Today · 2:15 PM', amount: '+ ₦100', positive: true },
+  { icon: 'account-balance', title: 'Cash out to bank', date: 'Yesterday', amount: '- ₦2,000', positive: false },
+  { icon: 'local-shipping', title: 'Delivery earnings', date: 'Yesterday', amount: '+ ₦420', positive: true },
+  { icon: 'card-giftcard', title: 'Weekend bonus', date: '2 days ago', amount: '+ ₦1,000', positive: true },
 ];
 
 type WalletProps = {
@@ -64,10 +64,10 @@ export function Wallet({ onBack, onCashOut }: WalletProps) {
         {/* Balance hero */}
         <View style={styles.hero}>
           <Text style={styles.heroLabel}>Available balance</Text>
-          <Text style={styles.heroBalance}>Rs 2,450</Text>
+          <Text style={styles.heroBalance}>₦2,450</Text>
           <View style={styles.heroMetaRow}>
             <MaterialIcons name="schedule" size={16} color="rgba(255,255,255,0.7)" />
-            <Text style={styles.heroMeta}>Rs 880 pending clearance</Text>
+            <Text style={styles.heroMeta}>₦880 pending clearance</Text>
           </View>
           <Pressable
             onPress={onCashOut}

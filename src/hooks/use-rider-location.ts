@@ -78,14 +78,37 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
       const token = await getRiderToken();
       if (!token) {
         setError('Your session expired. Please log in again.');
+        console.warn('[use-rider-location] missing rider token while writing location', {
+          rider_id: id,
+        });
         return;
       }
+      console.log('[use-rider-location] writing rider location', {
+        rider_id: id,
+        is_available: available,
+        active_delivery_id: activeId,
+        lat,
+        lng,
+      });
       const { error: fnErr } = await callBackend(
         'rider-location',
         { lat, lng, is_available: available },
         { token },
       );
-      if (fnErr) setError(fnErr.message);
+      if (fnErr) {
+        console.warn('[use-rider-location] rider-location write failed', {
+          rider_id: id,
+          is_available: available,
+          error: fnErr.message,
+        });
+        setError(fnErr.message);
+      } else {
+        console.log('[use-rider-location] rider location saved', {
+          rider_id: id,
+          is_available: available,
+        });
+        setError(null);
+      }
 
       // Live broadcast for the User App during an active delivery.
       ensureBroadcastChannel(activeId);

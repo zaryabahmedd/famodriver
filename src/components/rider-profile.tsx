@@ -1,8 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { getLocalAvatar, getRiderProfile } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -53,6 +56,21 @@ export function RiderProfile({
   onDeleteAccount,
 }: RiderProfileProps) {
   const insets = useSafeAreaInsets();
+  const [name, setName] = useState<string | null>(null);
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const [profile, savedAvatar] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
+      if (!active) return;
+      if (profile?.full_name) setName(profile.full_name);
+      if (savedAvatar) setAvatar(savedAvatar);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <View style={styles.root}>
@@ -75,9 +93,9 @@ export function RiderProfile({
         {/* Profile header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarRing}>
-            <Image source={{ uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
+            <Image source={avatar ? { uri: avatar } : { uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
           </View>
-          <Text style={styles.name}>Rashid Ahmed</Text>
+          <Text style={styles.name}>{name ?? 'Rider'}</Text>
           <View style={styles.metaRow}>
             <MaterialIcons name="star" size={16} color={COLORS.primary} />
             <Text style={styles.metaStrong}>4.9</Text>

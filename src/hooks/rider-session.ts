@@ -48,8 +48,16 @@ export async function setRiderSession(session: RiderSession): Promise<void> {
       secureSet(TOKEN_KEY, session.token),
       secureSet(TOKEN_EXP_KEY, session.expiresAt),
     ]);
-  } catch {
-    // ignore storage errors
+    console.log('[rider-session] stored rider session', {
+      rider_id: session.riderId,
+      expires_at: session.expiresAt,
+    });
+  } catch (error) {
+    console.warn('[rider-session] failed to store rider session', {
+      rider_id: session.riderId,
+      error,
+    });
+    throw error;
   }
 }
 
@@ -95,6 +103,7 @@ export async function clearRiderSession(): Promise<void> {
   try {
     await Promise.all([
       AsyncStorage.removeItem(RIDER_ID_KEY),
+      AsyncStorage.removeItem('famo.riderAvatar'),
       secureDelete(TOKEN_KEY),
       secureDelete(TOKEN_EXP_KEY),
     ]);

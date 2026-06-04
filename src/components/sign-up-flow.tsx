@@ -9,8 +9,10 @@ import { PayoutDetails } from '@/components/payout-details';
 import { SignUp } from '@/components/sign-up';
 import { UploadDocuments } from '@/components/upload-documents';
 import { VehicleDetails } from '@/components/vehicle-details';
+import { VerifyEmailCode } from '@/components/verify-email-code';
 import { callBackend } from '@/hooks/backend-client';
-import { setStoredRiderId } from '@/hooks/rider-session';
+import { setRiderSession, setStoredRiderId } from '@/hooks/rider-session';
+import { supabase } from '@/hooks/supabase-client';
 
 type SignUpFlowProps = {
   onComplete: () => void;
@@ -23,6 +25,7 @@ export function SignUpFlow({ onComplete }: SignUpFlowProps) {
 
   // Track Rider Database Details
   const [riderId, setRiderId] = useState('');
+  const [email, setEmail] = useState('');
   const [loginNote, setLoginNote] = useState<string | null>(null);
 
   const next = () => setStep((s) => s + 1);
@@ -59,9 +62,41 @@ export function SignUpFlow({ onComplete }: SignUpFlowProps) {
       }
 
       const newId = data.rider_id as string;
+      const normalizedEmail = values.email.trim().toLowerCase();
       setRiderId(newId);
       setStoredRiderId(newId);
-      // The new backend has no email-OTP step, so go straight to documents.
+      setEmail(normalizedEmail);
+
+      // Signup only returns the rider id — it does NOT issue a session token.
+      // Log in immediately with the same credentials so we hold a valid token
+      // for the authenticated onboarding steps (document upload, vehicle,
+      // payout). Without this, those calls fail with `no_session`.
+      const { data: loginData, error: loginErr } = await callBackend('rider-auth', {
+        action: 'login',
+        email: normalizedEmail,
+        password: values.password,
+      });
+      if (loginErr || !loginData?.ok || !loginData?.token) {
+        alert('Account created, but we could not start your session. Please log in to continue.');
+        showLoginScreen();
+        return;
+      }
+      await setRiderSession({
+        token: loginData.token as string,
+        riderId: (loginData.rider_id as string) ?? newId,
+        expiresAt: loginData.expires_at as string,
+      });
+
+      // Email the rider a 6-digit verification code via Supabase Auth before
+      // they can continue to document upload.
+      const { error: otpErr } = await supabase.auth.signInWithOtp({
+        email: normalizedEmail,
+        options: { shouldCreateUser: true },
+      });
+      if (otpErr) {
+        alert('Account created, but we could not send the verification code. Please try logging in.');
+        return;
+      }
       next();
     } catch (err: any) {
       alert('An unexpected error occurred. Please try again.');
@@ -96,22 +131,26 @@ export function SignUpFlow({ onComplete }: SignUpFlowProps) {
   }
 
   if (step === 1) {
-    return <UploadDocuments riderId={riderId} onContinue={next} onBack={back} />;
+    return <VerifyEmailCode email={email} onVerified={next} onBack={back} />;
   }
 
   if (step === 2) {
-    return <VehicleDetails riderId={riderId} onContinue={next} onBack={back} />;
+    return <UploadDocuments riderId={riderId} onContinue={next} onBack={back} />;
   }
 
   if (step === 3) {
-    return <PayoutDetails riderId={riderId} onContinue={next} onBack={back} />;
+    return <VehicleDetails riderId={riderId} onContinue={next} onBack={back} />;
   }
 
   if (step === 4) {
-    return <ApplicationSubmitted onContinue={next} onBack={back} />;
+    return <PayoutDetails riderId={riderId} onContinue={next} onBack={back} />;
   }
 
   if (step === 5) {
+    return <ApplicationSubmitted onContinue={next} onBack={back} />;
+  }
+
+  if (step === 6) {
     return <AccountApproved onStart={next} onClose={next} />;
   }
 

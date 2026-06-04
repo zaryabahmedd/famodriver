@@ -1,12 +1,13 @@
-import { estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
-import type { Delivery, DeliveryOffer } from '@/hooks/rider-api';
+import { calculateFare, estimateMinutes, formatKm, formatPrice, haversineMeters, type LatLng } from '@/hooks/maps';
+import { formatPackageCategory, formatPackageSize, type Delivery, type DeliveryOffer } from '@/hooks/rider-api';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import { DeclineJob } from './decline-job';
+import { RouteMap } from './route-map';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -29,8 +30,6 @@ const COLORS = {
 const PARCEL_URI =
   'https://lh3.googleusercontent.com/aida-public/AB6AXuAzZG2Adh5_IBWt-HEP9k1oPXDRBhTl5LMN-uG9pvH94JlVIMib8F9B-P_6aTfc5qQzkUBtVt2hboCcZ2S-I01SYapOu_oAP9vIhCfeJDpnYldQdR5pgLbbxyrZd-vqPHD-WCzz1QPCPJl-E513g5-uS22SAocud2B4LlrsFgzRcPmyK_RY75AqrH7ORvIZO7B_INbBKE5VPQJoA3Jzl0227Q2ZvqJYbY0pA6Vrdg84SY7OMWZMReAaK4H2DfATGLS8QnIBNuZMOTA';
 
-const RING_RADIUS = 70;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const TOTAL_SECONDS = 35;
 
 type DeliveryRequestProps = {
@@ -42,6 +41,13 @@ type DeliveryRequestProps = {
 
 export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: DeliveryRequestProps) {
   const insets = useSafeAreaInsets();
+  const { width, height } = useWindowDimensions();
+  // Responsive scaling so the sheet fits small and large phones alike.
+  const compact = height < 720 || width < 360;
+  const ringSize = Math.round(Math.min(168, Math.max(120, width * 0.42)));
+  const ringStroke = compact ? 7 : 8;
+  const ringRadius = (ringSize - ringStroke) / 2;
+  const ringCircumference = 2 * Math.PI * ringRadius;
   const deadline = useMemo(
     () => (offer ? new Date(offer.expires_at).getTime() : Date.now() + TOTAL_SECONDS * 1000),
     [offer],
@@ -53,6 +59,14 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
 
   const pickup = delivery?.pickup_address ?? 'Pickup point';
   const dropoff = delivery?.dropoff_address ?? 'Drop-off point';
+  const pickupCoord: LatLng | null =
+    delivery != null && Number.isFinite(delivery.pickup_lat) && Number.isFinite(delivery.pickup_lng)
+      ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng }
+      : null;
+  const dropoffCoord: LatLng | null =
+    delivery != null && Number.isFinite(delivery.dropoff_lat) && Number.isFinite(delivery.dropoff_lng)
+      ? { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng }
+      : null;
   const dropMeters =
     delivery != null
       ? haversineMeters(
@@ -61,9 +75,18 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
         )
       : null;
   const awayMeters = offer?.distance_meters ?? null;
-  const earnings = formatPrice(delivery?.price);
-  const chips = [
-    { icon: 'inventory-2' as const, label: delivery?.weight != null ? `${delivery.weight} kg` : 'Parcel' },
+  // Fare follows the flat ₦180/km rate over the pickup→drop-off distance.
+  const earnings = formatPrice(calculateFare(dropMeters) ?? delivery?.price);
+  const categoryLabel = formatPackageCategory(delivery?.package_category);
+  const sizeLabel = formatPackageSize(delivery?.package_size);
+  const parcelLabel =
+    categoryLabel ?? (delivery?.weight != null ? `${delivery.weight} kg` : 'Parcel');
+  const chips: { icon?: 'inventory-2' | 'straighten' | 'scale'; label: string }[] = [
+    { icon: 'inventory-2', label: parcelLabel },
+    ...(sizeLabel ? [{ icon: 'straighten' as const, label: sizeLabel }] : []),
+    ...(categoryLabel && delivery?.weight != null
+      ? [{ icon: 'scale' as const, label: `${delivery.weight} kg` }]
+      : []),
     { label: formatKm(dropMeters) },
     { label: estimateMinutes(dropMeters) },
   ];
@@ -105,30 +128,39 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
   }, [seconds, onDecline, confirmOpen]);
 
   const dashOffset =
-    RING_CIRCUMFERENCE - (Math.min(seconds, TOTAL_SECONDS) / TOTAL_SECONDS) * RING_CIRCUMFERENCE;
+    ringCircumference - (Math.min(seconds, TOTAL_SECONDS) / TOTAL_SECONDS) * ringCircumference;
 
   return (
     <View style={styles.root}>
-      {/* Map */}
-      <View style={[styles.map, { paddingTop: insets.top }]}>
-        <Svg width="100%" height="100%" viewBox="0 0 400 400">
-          <Path
-            d="M60 320C120 280 180 340 240 280C280 240 320 220 340 160"
-            stroke={COLORS.primaryContainer}
-            strokeWidth={6}
-            strokeDasharray="8,8"
-            strokeLinecap="round"
-            fill="none"
+      {/* Live Google Maps preview: pickup -> drop-off with driving polyline. */}
+      <View style={styles.map}>
+        {pickupCoord && dropoffCoord ? (
+          <RouteMap
+            origin={null}
+            via={pickupCoord}
+            destination={dropoffCoord}
+            originLabel="Pickup"
+            destinationLabel="Drop-off"
+            style={StyleSheet.absoluteFill}
           />
-          <Circle cx={60} cy={320} r={12} fill="white" stroke="#000" strokeWidth={2} />
-          <Circle cx={60} cy={320} r={5} fill={COLORS.primaryContainer} />
-          <Circle cx={340} cy={160} r={12} fill="white" stroke="#000" strokeWidth={2} />
-          <Circle cx={340} cy={160} r={5} fill="#000" />
-        </Svg>
-        <View style={[styles.mapLabel, { top: insets.top + 120 }]}>
-          <View style={styles.mapLabelDot} />
-          <Text style={styles.mapLabelText}>DHA PHASE 5</Text>
-        </View>
+        ) : (
+          <View style={styles.mapFallback}>
+            <MaterialIcons name="map" size={40} color={COLORS.outline} />
+            <Text style={styles.mapFallbackText}>Loading route…</Text>
+          </View>
+        )}
+        {pickupCoord && dropoffCoord ? (
+          <View style={[styles.mapLegend, { top: insets.top + 12 }]} pointerEvents="none">
+            <View style={styles.mapLegendRow}>
+              <View style={[styles.mapLegendDot, { backgroundColor: '#f59e0b' }]} />
+              <Text style={styles.mapLegendText} numberOfLines={1}>{pickup}</Text>
+            </View>
+            <View style={styles.mapLegendRow}>
+              <View style={[styles.mapLegendDot, { backgroundColor: '#16a34a' }]} />
+              <Text style={styles.mapLegendText} numberOfLines={1}>{dropoff}</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* Bottom sheet */}
@@ -139,7 +171,8 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.sheetContent}
+          style={styles.scroll}
+          contentContainerStyle={[styles.sheetContent, compact && styles.sheetContentCompact]}
           showsVerticalScrollIndicator={false}
           bounces={false}>
           {/* Banner */}
@@ -154,31 +187,33 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
           </View>
 
           {/* Timer ring + earnings */}
-          <View style={styles.ringWrap}>
-            <Svg width={160} height={160} style={styles.ringSvg}>
+          <View style={[styles.ringWrap, { width: ringSize, height: ringSize }]}>
+            <Svg width={ringSize} height={ringSize} style={styles.ringSvg}>
               <Circle
-                cx={80}
-                cy={80}
-                r={RING_RADIUS}
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
                 stroke={COLORS.track}
-                strokeWidth={8}
+                strokeWidth={ringStroke}
                 fill="none"
               />
               <Circle
-                cx={80}
-                cy={80}
-                r={RING_RADIUS}
+                cx={ringSize / 2}
+                cy={ringSize / 2}
+                r={ringRadius}
                 stroke={COLORS.primary}
-                strokeWidth={8}
+                strokeWidth={ringStroke}
                 fill="none"
-                strokeDasharray={RING_CIRCUMFERENCE}
+                strokeDasharray={ringCircumference}
                 strokeDashoffset={dashOffset}
                 strokeLinecap="round"
-                transform="rotate(-90 80 80)"
+                transform={`rotate(-90 ${ringSize / 2} ${ringSize / 2})`}
               />
             </Svg>
             <View style={styles.ringCenter}>
-              <Text style={styles.earnings}>{earnings}</Text>
+              <Text style={[styles.earnings, compact && styles.earningsCompact]} numberOfLines={1}>
+                {earnings}
+              </Text>
               <Text style={styles.timerText}>{seconds}s</Text>
             </View>
           </View>
@@ -222,13 +257,17 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
               onPress={() => setConfirmOpen(true)}
               style={({ pressed }) => [styles.declineBtn, pressed && styles.pressed]}
               accessibilityRole="button">
-              <Text style={styles.declineText}>Decline</Text>
+              <Text style={[styles.declineText, compact && styles.ctaTextCompact]} numberOfLines={1}>
+                Decline
+              </Text>
             </Pressable>
             <Pressable
               onPress={onAccept}
               style={({ pressed }) => [styles.acceptBtn, pressed && styles.pressed]}
               accessibilityRole="button">
-              <Text style={styles.acceptText}>Accept</Text>
+              <Text style={[styles.acceptText, compact && styles.ctaTextCompact]} numberOfLines={1}>
+                Accept
+              </Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -256,21 +295,29 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: COLORS.mapBg,
   },
-  mapLabel: {
-    position: 'absolute',
-    left: 24,
-    flexDirection: 'row',
+  mapFallback: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 8,
+    backgroundColor: COLORS.mapBg,
+  },
+  mapFallbackText: { fontSize: 13, fontWeight: '600', color: COLORS.outline },
+  mapLegend: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 9999,
-    backgroundColor: '#ffffff',
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
   },
-  mapLabelDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.primaryContainer },
-  mapLabelText: { fontSize: 10, fontWeight: '700', letterSpacing: 2, color: COLORS.onSurface },
+  mapLegendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mapLegendDot: { width: 10, height: 10, borderRadius: 5 },
+  mapLegendText: { flex: 1, fontSize: 12, fontWeight: '600', color: COLORS.onSurface },
   sheet: {
     position: 'absolute',
     bottom: 0,
@@ -299,6 +346,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surfaceContainerHighest,
   },
   sheetContent: { paddingHorizontal: 24, paddingBottom: 8, gap: 24, width: '100%' },
+  sheetContentCompact: { gap: 16, paddingHorizontal: 16 },
+  scroll: { alignSelf: 'stretch', width: '100%' },
   banner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,6 +372,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6,
     color: COLORS.onBackground,
   },
+  earningsCompact: { fontSize: 22, lineHeight: 26 },
   timerText: { fontSize: 16, fontWeight: '600', color: COLORS.secondary },
   route: {
     flexDirection: 'row',
@@ -330,7 +380,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 8,
   },
-  routeRight: { alignItems: 'flex-end' },
+  routeRight: { alignItems: 'flex-end', flexShrink: 1, maxWidth: '40%' },
   routePlace: { fontSize: 16, fontWeight: '600', color: COLORS.onSurface },
   routeMeta: { fontSize: 14, color: COLORS.onSurfaceVariant },
   routeLine: {
@@ -357,7 +407,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.outlineVariant,
   },
   chipText: { fontSize: 14, fontWeight: '500', color: COLORS.onSurface },
-  ctaRow: { flexDirection: 'row', gap: 16 },
+  ctaRow: { flexDirection: 'row', gap: 12 },
   declineBtn: {
     flex: 1,
     paddingVertical: 16,
@@ -366,7 +416,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.outlineVariant,
     alignItems: 'center',
   },
-  declineText: { fontSize: 20, fontWeight: '700', color: COLORS.onSurface },
+  declineText: { fontSize: 18, fontWeight: '700', color: COLORS.onSurface },
   acceptBtn: {
     flex: 1,
     paddingVertical: 16,
@@ -374,6 +424,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryContainer,
     alignItems: 'center',
   },
-  acceptText: { fontSize: 20, fontWeight: '700', color: COLORS.onPrimaryContainer },
+  acceptText: { fontSize: 18, fontWeight: '700', color: COLORS.onPrimaryContainer },
+  ctaTextCompact: { fontSize: 16 },
   pressed: { opacity: 0.9, transform: [{ scale: 0.97 }] },
 });

@@ -1,9 +1,12 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { Delivery } from '@/hooks/rider-api';
+import { formatPackageCategory, formatPackageSize, type Delivery } from '@/hooks/rider-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -21,16 +24,8 @@ const COLORS = {
 
 type Row = {
   label: string;
-  expected: string;
-  actual: string;
-  discrepancy?: boolean;
+  value: string;
 };
-
-const ROWS: Row[] = [
-  { label: 'Type', expected: 'Electronics', actual: 'Electronics' },
-  { label: 'Size', expected: 'Medium', actual: 'Medium' },
-  { label: 'Weight', expected: '5.5 kg', actual: '6.2 kg', discrepancy: true },
-];
 
 type VerifyPackageProps = {
   onContinue: () => void;
@@ -40,21 +35,44 @@ type VerifyPackageProps = {
 
 export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackageProps) {
   const insets = useSafeAreaInsets();
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+
+  const capturePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Camera permission needed',
+        'Please allow camera access in your device settings to take the package photo.'
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [16, 9],
+      quality: 0.7,
+      cameraType: ImagePicker.CameraType.back,
+    });
+
+    if (!result.canceled && result.assets?.[0]) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  const handleContinue = () => {
+    if (!photoUri) return;
+    onContinue();
+  };
+
   const weightLabel = delivery?.weight != null ? `${delivery.weight} kg` : '—';
   const rows: Row[] = [
-    {
-      label: 'Pickup',
-      expected: delivery?.pickup_address ?? '—',
-      actual: delivery?.pickup_address ?? '—',
-    },
-    {
-      label: 'Drop-off',
-      expected: delivery?.dropoff_address ?? '—',
-      actual: delivery?.dropoff_address ?? '—',
-    },
-    { label: 'Weight', expected: weightLabel, actual: weightLabel },
+    { label: 'Type', value: formatPackageCategory(delivery?.package_category) ?? '—' },
+    { label: 'Size', value: formatPackageSize(delivery?.package_size) ?? '—' },
+    { label: 'Weight', value: weightLabel },
   ];
-  const hasDiscrepancy = rows.some((r) => r.discrepancy);
+  const description = delivery?.package_description?.trim() || null;
+  const specialInstructions = delivery?.special_instructions?.trim() || null;
 
   return (
     <View style={styles.root}>
@@ -74,64 +92,78 @@ export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackagePro
         showsVerticalScrollIndicator={false}>
         <Text style={styles.subtext}>Confirm the package matches the order details.</Text>
 
-        {/* Comparison table */}
+        {/* Order details */}
         <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <View style={styles.colLabel} />
-            <Text style={styles.colHeaderText}>Expected</Text>
-            <Text style={styles.colHeaderText}>Actual</Text>
-          </View>
-
           {rows.map((row) => (
-            <View
-              key={row.label}
-              style={[styles.row, row.discrepancy && styles.rowDiscrepancy]}>
+            <View key={row.label} style={styles.row}>
               <Text style={styles.rowLabel}>{row.label}</Text>
-              <Text style={styles.rowValue} numberOfLines={1}>{row.expected}</Text>
-              <View style={styles.actualCell}>
-                <Text style={[styles.rowValue, row.discrepancy && styles.rowValueError]} numberOfLines={1}>
-                  {row.actual}
-                </Text>
-                {row.discrepancy && (
-                  <MaterialIcons name="info" size={14} color={COLORS.error} />
-                )}
-              </View>
+              <Text style={styles.rowValue} numberOfLines={2}>{row.value}</Text>
             </View>
           ))}
         </View>
 
-        {/* Warning alert */}
-        {hasDiscrepancy && (
-          <View style={styles.alert}>
-            <View style={styles.alertIcon}>
-              <MaterialIcons name="warning" size={18} color="#000000" />
-            </View>
-            <Text style={styles.alertText}>
-              Weight differs slightly. Continue or request fare update from the customer.
-            </Text>
+        {/* Notes from the customer */}
+        {description || specialInstructions ? (
+          <View style={styles.notes}>
+            {description ? (
+              <View style={styles.noteBlock}>
+                <Text style={styles.noteLabel}>Description</Text>
+                <Text style={styles.noteText}>{description}</Text>
+              </View>
+            ) : null}
+            {specialInstructions ? (
+              <View style={styles.noteBlock}>
+                <Text style={styles.noteLabel}>Handling instructions</Text>
+                <Text style={styles.noteText}>{specialInstructions}</Text>
+              </View>
+            ) : null}
           </View>
-        )}
+        ) : null}
 
         {/* Photo confirmation */}
         <View style={styles.photoWrap}>
-          <View style={styles.photoCard}>
-            <View style={styles.photoCheck}>
-              <MaterialIcons name="check" size={28} color={COLORS.fammoYellow} />
-            </View>
-            <Text style={styles.photoTitle}>Package photo taken</Text>
-            <Text style={styles.photoHint}>Tap to retake</Text>
-          </View>
+          <Pressable
+            onPress={capturePhoto}
+            style={styles.photoCard}
+            accessibilityRole="button"
+            accessibilityLabel={photoUri ? 'Retake package photo' : 'Take package photo'}>
+            {photoUri ? (
+              <>
+                <Image source={{ uri: photoUri }} style={styles.photoPreview} contentFit="cover" />
+                <View style={styles.photoRetake}>
+                  <MaterialIcons name="photo-camera" size={16} color="#000000" />
+                  <Text style={styles.photoRetakeText}>Tap to retake</Text>
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.photoCheck}>
+                  <MaterialIcons name="photo-camera" size={28} color={COLORS.fammoYellow} />
+                </View>
+                <Text style={styles.photoTitle}>Take package photo</Text>
+                <Text style={styles.photoHint}>Tap to capture</Text>
+              </>
+            )}
+          </Pressable>
         </View>
       </ScrollView>
 
       {/* Footer action */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + 24 }]}>
         <Pressable
-          onPress={onContinue}
-          style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
-          accessibilityRole="button">
-          <Text style={styles.ctaText}>Continue</Text>
-          <MaterialIcons name="arrow-forward" size={22} color="#000000" />
+          onPress={handleContinue}
+          disabled={!photoUri}
+          style={({ pressed }) => [
+            styles.cta,
+            !photoUri && styles.ctaDisabled,
+            pressed && photoUri && styles.ctaPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !photoUri }}>
+          <Text style={[styles.ctaText, !photoUri && styles.ctaTextDisabled]}>
+            {photoUri ? 'Continue' : 'Take a photo to continue'}
+          </Text>
+          <MaterialIcons name="arrow-forward" size={22} color={photoUri ? '#000000' : COLORS.gray400} />
         </Pressable>
       </View>
     </View>
@@ -229,12 +261,29 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   rowValue: {
-    width: '35%',
-    textAlign: 'center',
+    flex: 1,
+    textAlign: 'right',
     fontSize: 14,
     fontWeight: '700',
     color: COLORS.gray900,
   },
+  notes: { gap: 12, marginBottom: 8 },
+  noteBlock: {
+    gap: 4,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: COLORS.surfaceLowest,
+    borderWidth: 1,
+    borderColor: COLORS.gray100,
+  },
+  noteLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: COLORS.gray400,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+  },
+  noteText: { fontSize: 14, fontWeight: '500', color: COLORS.gray900, lineHeight: 20 },
   actualCell: {
     width: '35%',
     flexDirection: 'row',
@@ -303,6 +352,22 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     marginTop: 2,
   },
+  photoPreview: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 22,
+  },
+  photoRetake: {
+    position: 'absolute',
+    bottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.fammoYellow,
+  },
+  photoRetakeText: { fontSize: 12, fontWeight: '800', color: '#000000' },
   footer: {
     paddingHorizontal: 24,
     paddingTop: 8,
@@ -326,5 +391,11 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   ctaPressed: { opacity: 0.95, transform: [{ scale: 0.97 }] },
+  ctaDisabled: {
+    backgroundColor: COLORS.gray100,
+    shadowOpacity: 0,
+    elevation: 0,
+  },
   ctaText: { fontSize: 18, fontWeight: '700', color: '#000000' },
+  ctaTextDisabled: { color: COLORS.gray400 },
 });

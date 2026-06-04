@@ -71,7 +71,12 @@ export function UploadDocuments({ onContinue, onBack }: UploadDocumentsProps) {
   const uploadToSupabase = async (doc: DocCard, asset: ImagePicker.ImagePickerAsset) => {
     setUploadingKey(doc.key);
     try {
-      const result = await uploadRiderDocument(doc.docType, asset.uri, asset.mimeType ?? undefined);
+      const result = await uploadRiderDocument(
+        doc.docType,
+        asset.uri,
+        asset.mimeType ?? undefined,
+        asset.base64,
+      );
       if (!result.ok) {
         Alert.alert('Upload failed', result.error ?? 'Could not upload the image. Please try again.');
         return;
@@ -102,6 +107,7 @@ export function UploadDocuments({ onContinue, onBack }: UploadDocumentsProps) {
       allowsEditing: true, // enables crop + rotate UI
       aspect: isSelfie ? [3, 4] : [4, 3],
       quality: 0.7,
+      base64: true, // bytes for the signed upload (avoids fetch(file://) on RN)
       cameraType: isSelfie ? ImagePicker.CameraType.front : ImagePicker.CameraType.back,
     });
 

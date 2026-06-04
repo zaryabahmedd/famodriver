@@ -6,9 +6,11 @@ type RouteMapProps = {
   origin: LatLng | null;
   destination: LatLng;
   via?: LatLng | null;
+  routeOverride?: LatLng[] | null;
   style?: object;
   originLabel?: string;
   destinationLabel?: string;
+  navigation?: boolean;
 };
 
 /** Web fallback: react-native-maps is native-only. */

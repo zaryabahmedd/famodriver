@@ -1,12 +1,14 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RouteMap } from '@/components/route-map';
-import { estimateMinutes, formatKm, haversineMeters, openTurnByTurn } from '@/hooks/maps';
+import { estimateMinutes, formatDuration, formatKm, haversineMeters, maneuverIcon, openTurnByTurn } from '@/hooks/maps';
 import type { Delivery } from '@/hooks/rider-api';
+import { useTurnByTurn } from '@/hooks/use-navigation';
 
 const COLORS = {
   mapBg: '#f1f3f4',
@@ -29,15 +31,44 @@ type PickupNavigationProps = {
   onBack: () => void;
   delivery?: Delivery | null;
   riderCoords?: { lat: number; lng: number } | null;
+  onCancel?: () => void;
 };
 
-export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: PickupNavigationProps) {
+// Riders may cancel a freshly accepted job only within this grace window.
+const CANCEL_GRACE_SECONDS = 60;
+
+export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onCancel }: PickupNavigationProps) {
   const insets = useSafeAreaInsets();
+
+  // Countdown for the 1-minute cancellation grace period.
+  const acceptedAt = delivery?.accepted_at ?? null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!acceptedAt) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [acceptedAt]);
+
+  const graceRemaining = acceptedAt
+    ? Math.max(0, CANCEL_GRACE_SECONDS - Math.floor((now - new Date(acceptedAt).getTime()) / 1000))
+    : 0;
+  const canCancel = !!onCancel && !!acceptedAt && graceRemaining > 0;
 
   const pickup = delivery ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng } : null;
   const pickupAddress = delivery?.pickup_address ?? 'Pickup location';
-  const customerName = delivery?.users?.full_name ?? 'Customer';
+  const senderName = delivery?.sender_name ?? delivery?.users?.full_name ?? 'Customer';
+  const senderPhone = delivery?.sender_phone ?? delivery?.users?.phone_number ?? null;
+  const pickupNotes = delivery?.pickup_notes?.trim() || null;
   const toPickup = pickup && riderCoords ? haversineMeters(riderCoords, pickup) : null;
+
+  // Live in-app turn-by-turn driven by the rider's GPS.
+  const nav = useTurnByTurn(riderCoords ?? null, pickup);
+  const navTitle = nav.currentStep?.instruction ?? 'Navigate to pickup';
+  const navDistance =
+    nav.distanceToManeuver != null ? formatKm(nav.distanceToManeuver) : pickupAddress;
+  const etaLabel =
+    nav.remainingSeconds != null ? formatDuration(nav.remainingSeconds) : estimateMinutes(toPickup);
+  const distLabel = nav.remainingMeters != null ? formatKm(nav.remainingMeters) : formatKm(toPickup);
 
   return (
     <View style={styles.root}>
@@ -49,6 +80,8 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: P
           <RouteMap
             origin={riderCoords ?? null}
             destination={pickup}
+            routeOverride={nav.polyline}
+            navigation
             style={StyleSheet.absoluteFill}
             originLabel="You"
             destinationLabel="Pickup"
@@ -68,12 +101,16 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: P
           accessibilityRole="button"
           accessibilityLabel="Open turn-by-turn navigation">
           <View style={styles.instructionIcon}>
-            <MaterialIcons name="navigation" size={32} color={COLORS.onSurface} />
+            <MaterialIcons
+              name={maneuverIcon(nav.currentStep?.maneuver ?? null) as any}
+              size={32}
+              color={COLORS.onSurface}
+            />
           </View>
           <View style={styles.instructionText}>
-            <Text style={styles.instructionTitle}>Navigate to pickup</Text>
+            <Text style={styles.instructionTitle} numberOfLines={2}>{navTitle}</Text>
             <Text style={styles.instructionSubtitle} numberOfLines={1}>
-              {pickupAddress}
+              {navDistance}
             </Text>
           </View>
           <MaterialIcons name="open-in-new" size={20} color={COLORS.onSurfaceVariant} />
@@ -81,7 +118,7 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: P
 
         <View style={styles.statusPill}>
           <Text style={styles.statusText}>
-            {estimateMinutes(toPickup)} • {formatKm(toPickup)}
+            {etaLabel} • {distLabel}
           </Text>
         </View>
       </View>
@@ -94,22 +131,42 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: P
           <View style={styles.customerInfo}>
             <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
             <View style={styles.customerText}>
-              <Text style={styles.customerName}>{customerName}</Text>
+              <Text style={styles.customerName}>{senderName}</Text>
               <Text style={styles.customerMeta} numberOfLines={1}>
                 Pickup · {pickupAddress}
               </Text>
+              {senderPhone ? (
+                <Text style={styles.customerMeta} numberOfLines={1}>{senderPhone}</Text>
+              ) : null}
             </View>
           </View>
 
           <View style={styles.actions}>
-            <Pressable style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Call">
+            <Pressable
+              onPress={() => senderPhone && Linking.openURL(`tel:${senderPhone}`)}
+              disabled={!senderPhone}
+              style={[styles.actionBtn, !senderPhone && styles.actionBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Call">
               <MaterialIcons name="call" size={22} color={COLORS.onSurface} />
             </Pressable>
-            <Pressable style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Message">
+            <Pressable
+              onPress={() => senderPhone && Linking.openURL(`sms:${senderPhone}`)}
+              disabled={!senderPhone}
+              style={[styles.actionBtn, !senderPhone && styles.actionBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Message">
               <MaterialIcons name="chat-bubble-outline" size={22} color={COLORS.onSurface} />
             </Pressable>
           </View>
         </View>
+
+        {pickupNotes ? (
+          <View style={styles.notesCard}>
+            <MaterialIcons name="sticky-note-2" size={18} color={COLORS.onSurfaceVariant} />
+            <Text style={styles.notesText}>{pickupNotes}</Text>
+          </View>
+        ) : null}
 
         <Pressable
           onPress={onArrived}
@@ -118,6 +175,19 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords }: P
           <Text style={styles.ctaText}>Arrived at pickup</Text>
           <MaterialIcons name="arrow-forward" size={22} color="#000000" />
         </Pressable>
+
+        {canCancel ? (
+          <Pressable
+            onPress={onCancel}
+            style={({ pressed }) => [styles.cancelBtn, pressed && styles.cancelBtnPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel job">
+            <MaterialIcons name="close" size={18} color={COLORS.onSurface} />
+            <Text style={styles.cancelText}>Cancel job ({graceRemaining}s)</Text>
+          </Pressable>
+        ) : acceptedAt ? (
+          <Text style={styles.cancelLocked}>Cancellation window closed</Text>
+        ) : null}
       </View>
     </View>
   );
@@ -243,6 +313,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
   },
+  actionBtnDisabled: { opacity: 0.4 },
+  notesCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+  },
+  notesText: { flex: 1, fontSize: 14, color: COLORS.onSurface, lineHeight: 20 },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -254,4 +336,24 @@ const styles = StyleSheet.create({
   },
   ctaPressed: { opacity: 0.9, transform: [{ scale: 0.97 }] },
   ctaText: { fontSize: 18, fontWeight: '700', color: '#000000' },
+  cancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+  },
+  cancelBtnPressed: { opacity: 0.85 },
+  cancelText: { fontSize: 15, fontWeight: '600', color: COLORS.onSurface },
+  cancelLocked: {
+    marginTop: 12,
+    textAlign: 'center',
+    fontSize: 13,
+    color: COLORS.onSurfaceVariant,
+  },
 });

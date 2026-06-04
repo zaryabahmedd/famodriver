@@ -46,7 +46,7 @@ const TODAY: Notification[] = [
     tint: COLORS.success,
     bg: COLORS.successContainer,
     title: 'Payout received',
-    message: 'Rs 2,450 has been transferred to your bank account.',
+    message: '₦2,450 has been transferred to your bank account.',
     time: '1 hr ago',
     unread: true,
   },
@@ -74,7 +74,7 @@ const EARLIER: Notification[] = [
     tint: COLORS.onSurfaceVariant,
     bg: COLORS.surfaceContainerHigh,
     title: 'Weekend bonus active',
-    message: 'Complete 20 trips this weekend to earn an extra Rs 1,000.',
+    message: 'Complete 20 trips this weekend to earn an extra ₦1,000.',
     time: '2 days ago',
   },
 ];

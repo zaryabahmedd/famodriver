@@ -30,6 +30,7 @@ export default function ProfileScreen() {
   const { logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState<Screen | null>(null);
+  const [profileVersion, setProfileVersion] = useState(0);
 
   const close = () => setActive(null);
 
@@ -52,6 +53,7 @@ export default function ProfileScreen() {
   return (
     <>
       <RiderProfile
+        key={profileVersion}
         onMenu={() => setMenuOpen(true)}
         onSelect={handleMenuSelect}
         onEditProfile={() => setActive('editProfile')}
@@ -64,7 +66,15 @@ export default function ProfileScreen() {
       {active === 'documents' && <Documents onBack={close} />}
       {active === 'bank' && <BankAccount onBack={close} />}
       {active === 'settings' && <Settings onBack={close} onLogout={logout} />}
-      {active === 'editProfile' && <EditProfile onBack={close} onSave={close} />}
+      {active === 'editProfile' && (
+        <EditProfile
+          onBack={close}
+          onSave={() => {
+            setProfileVersion((v) => v + 1);
+            close();
+          }}
+        />
+      )}
       {active === 'notifications' && <Notifications onBack={close} />}
       {active === 'reviews' && <Reviews onBack={close} />}
       {active === 'wallet' && <Wallet onBack={close} />}
