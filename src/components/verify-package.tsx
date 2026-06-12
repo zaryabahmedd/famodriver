@@ -7,6 +7,10 @@ import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from '
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { formatPackageCategory, formatPackageSize, type Delivery } from '@/hooks/rider-api';
+import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
+
+import { Chat } from './chat';
+import { ChatBadge } from './chat-badge';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -36,6 +40,19 @@ type VerifyPackageProps = {
 export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackageProps) {
   const insets = useSafeAreaInsets();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
+  const customerName =
+    delivery?.users?.full_name ?? delivery?.recipient_name ?? delivery?.sender_name ?? 'Customer';
+
+  const openChat = () => {
+    markRead();
+    setChatOpen(true);
+  };
+  const closeChat = () => {
+    markRead();
+    setChatOpen(false);
+  };
 
   const capturePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -84,7 +101,15 @@ export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackagePro
           <MaterialIcons name="chevron-left" size={26} color={COLORS.gray900} />
         </Pressable>
         <Text style={styles.title}>Verify package</Text>
-        <View style={styles.spacer} />
+        <Pressable
+          onPress={() => delivery?.id && openChat()}
+          disabled={!delivery?.id}
+          style={[styles.backBtn, !delivery?.id && styles.chatBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Message customer">
+          <MaterialIcons name="chat-bubble-outline" size={22} color={COLORS.gray900} />
+          <ChatBadge count={unread} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -166,6 +191,10 @@ export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackagePro
           <MaterialIcons name="arrow-forward" size={22} color={photoUri ? '#000000' : COLORS.gray400} />
         </Pressable>
       </View>
+
+      {chatOpen ? (
+        <Chat deliveryId={delivery?.id ?? null} name={customerName} onBack={closeChat} />
+      ) : null}
     </View>
   );
 }
@@ -204,6 +233,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '800', color: COLORS.gray900 },
   spacer: { width: 44 },
+  chatBtnDisabled: { opacity: 0.4 },
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 8,

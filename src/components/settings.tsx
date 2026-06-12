@@ -1,13 +1,12 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const COLORS = {
   surface: '#fbf9f9',
   surfaceLowest: '#ffffff',
-  surfaceContainerHigh: '#e9e8e7',
   onSurface: '#1b1c1c',
   onSurfaceVariant: '#4d4632',
   primary: '#715d00',
@@ -20,8 +19,6 @@ const COLORS = {
   onErrorContainer: '#93000a',
 };
 
-type ToggleKey = 'push' | 'jobAlerts' | 'promos' | 'sound';
-
 type SettingsProps = {
   onBack?: () => void;
   onLogout?: () => void;
@@ -29,31 +26,7 @@ type SettingsProps = {
 
 export function Settings({ onBack, onLogout }: SettingsProps) {
   const insets = useSafeAreaInsets();
-  const [toggles, setToggles] = useState<Record<ToggleKey, boolean>>({
-    push: true,
-    jobAlerts: true,
-    promos: false,
-    sound: true,
-  });
   const [confirmLogout, setConfirmLogout] = useState(false);
-
-  const setToggle = (key: ToggleKey, value: boolean) =>
-    setToggles((t) => ({ ...t, [key]: value }));
-
-  const renderSwitch = (key: ToggleKey, label: string, sub: string) => (
-    <View style={styles.toggleRow}>
-      <View style={styles.toggleText}>
-        <Text style={styles.rowLabel}>{label}</Text>
-        <Text style={styles.rowSub}>{sub}</Text>
-      </View>
-      <Switch
-        value={toggles[key]}
-        onValueChange={(v) => setToggle(key, v)}
-        trackColor={{ false: COLORS.surfaceContainerHigh, true: COLORS.primaryContainer }}
-        thumbColor={COLORS.surfaceLowest}
-      />
-    </View>
-  );
 
   return (
     <View style={styles.root}>
@@ -69,31 +42,19 @@ export function Settings({ onBack, onLogout }: SettingsProps) {
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}>
-        {/* Notifications */}
-        <Text style={styles.sectionLabel}>Notifications</Text>
-        <View style={styles.card}>
-          {renderSwitch('push', 'Push notifications', 'Receive alerts on your device')}
-          <View style={styles.divider} />
-          {renderSwitch('jobAlerts', 'New job alerts', 'Get notified about nearby jobs')}
-          <View style={styles.divider} />
-          {renderSwitch('promos', 'Promotions', 'Offers, bonuses and news')}
-          <View style={styles.divider} />
-          {renderSwitch('sound', 'Sound & vibration', 'Play sound for alerts')}
-        </View>
-
         {/* Preferences */}
         <Text style={styles.sectionLabel}>Preferences</Text>
         <View style={styles.card}>
-          <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]} accessibilityRole="button">
+          <View style={styles.linkRow}>
             <View style={styles.linkLeft}>
               <MaterialIcons name="translate" size={22} color={COLORS.onSurface} />
               <Text style={styles.rowLabel}>Language</Text>
             </View>
             <View style={styles.linkRight}>
               <Text style={styles.rowValue}>English</Text>
-              <MaterialIcons name="chevron-right" size={22} color={COLORS.onSurfaceVariant} />
+              <MaterialIcons name="lock" size={18} color={COLORS.onSurfaceVariant} />
             </View>
-          </Pressable>
+          </View>
           <View style={styles.divider} />
           <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]} accessibilityRole="button">
             <View style={styles.linkLeft}>
@@ -197,10 +158,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 16,
   },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
-  toggleText: { flex: 1, gap: 2, paddingRight: 12 },
   rowLabel: { fontSize: 15, fontWeight: '600', color: COLORS.onSurface },
-  rowSub: { fontSize: 13, color: COLORS.onSurfaceVariant },
   rowValue: { fontSize: 14, color: COLORS.onSurfaceVariant },
   divider: { height: 1, backgroundColor: COLORS.outlineVariant },
   linkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 },

@@ -34,7 +34,8 @@ export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
     brand: string;
     model: string;
     year: string;
-    plate: string;
+    registration: string;
+    battery: string;
   } | null>(null);
 
   useEffect(() => {
@@ -48,7 +49,8 @@ export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
             brand: rider.vehicle_brand ?? '',
             model: rider.vehicle_model ?? '',
             year: rider.vehicle_year ?? '',
-            plate: rider.vehicle_plate ?? '',
+            registration: rider.vehicle_plate ?? '',
+            battery: rider.vehicle_battery_capacity ?? '',
           });
         }
         setLoading(false);
@@ -60,15 +62,16 @@ export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
   }, []);
 
   const title = vehicle
-    ? [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || vehicle.type || 'Vehicle'
-    : 'Vehicle';
+    ? [vehicle.brand, vehicle.model].filter(Boolean).join(' ') || vehicle.type || 'Bike'
+    : 'Bike';
 
   const details: { label: string; value: string }[] = [
-    { label: 'Vehicle type', value: vehicle?.type || '—' },
+    { label: 'Bike type', value: vehicle?.type || '—' },
     { label: 'Brand', value: vehicle?.brand || '—' },
     { label: 'Model', value: vehicle?.model || '—' },
     { label: 'Year', value: vehicle?.year || '—' },
-    { label: 'Plate number', value: vehicle?.plate || '—' },
+    { label: 'Registration number', value: vehicle?.registration || '—' },
+    { label: 'Battery capacity', value: vehicle?.battery || '—' },
   ];
 
   return (
@@ -78,7 +81,7 @@ export function VehicleInfo({ onBack, onEdit }: VehicleInfoProps) {
         <Pressable onPress={onBack} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Back">
           <MaterialIcons name="arrow-back" size={24} color={COLORS.onSurfaceVariant} />
         </Pressable>
-        <Text style={styles.appBarTitle}>Vehicle</Text>
+        <Text style={styles.appBarTitle}>Bike</Text>
         <Pressable onPress={onEdit} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Edit">
           <MaterialIcons name="edit" size={22} color={COLORS.primary} />
         </Pressable>

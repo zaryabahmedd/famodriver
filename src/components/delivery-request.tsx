@@ -1,4 +1,5 @@
 import { calculateFare, estimateMinutes, formatKm, formatPrice, haversineMeters, type LatLng } from '@/hooks/maps';
+import { usePricingSettings } from '@/hooks/pricing';
 import { formatPackageCategory, formatPackageSize, type Delivery, type DeliveryOffer } from '@/hooks/rider-api';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
@@ -75,8 +76,9 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
         )
       : null;
   const awayMeters = offer?.distance_meters ?? null;
-  // Fare follows the flat ₦180/km rate over the pickup→drop-off distance.
-  const earnings = formatPrice(calculateFare(dropMeters) ?? delivery?.price);
+  const pricing = usePricingSettings();
+  // Fare follows the admin-configured base + per-km rate over the pickup→drop-off distance.
+  const earnings = formatPrice(calculateFare(dropMeters, pricing) ?? delivery?.price);
   const categoryLabel = formatPackageCategory(delivery?.package_category);
   const sizeLabel = formatPackageSize(delivery?.package_size);
   const parcelLabel =
@@ -251,6 +253,14 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
             ))}
           </View>
 
+          {/* Instructions from the customer */}
+          {delivery?.special_instructions ? (
+            <View style={styles.instructionsCard}>
+              <MaterialIcons name="sticky-note-2" size={16} color={COLORS.onSurfaceVariant} />
+              <Text style={styles.instructionsText}>{delivery.special_instructions}</Text>
+            </View>
+          ) : null}
+
           {/* CTAs */}
           <View style={styles.ctaRow}>
             <Pressable
@@ -407,6 +417,17 @@ const styles = StyleSheet.create({
     borderColor: COLORS.outlineVariant,
   },
   chipText: { fontSize: 14, fontWeight: '500', color: COLORS.onSurface },
+  instructionsCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+  },
+  instructionsText: { flex: 1, fontSize: 14, color: COLORS.onSurface, lineHeight: 20 },
   ctaRow: { flexDirection: 'row', gap: 12 },
   declineBtn: {
     flex: 1,

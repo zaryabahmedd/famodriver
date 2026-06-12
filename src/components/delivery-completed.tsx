@@ -4,6 +4,7 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-n
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { calculateFare, estimateMinutes, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
+import { usePricingSettings } from '@/hooks/pricing';
 import type { Delivery } from '@/hooks/rider-api';
 
 const COLORS = {
@@ -26,6 +27,7 @@ type DeliveryCompletedProps = {
 
 export function DeliveryCompleted({ onHome, onBack, delivery }: DeliveryCompletedProps) {
   const insets = useSafeAreaInsets();
+  const pricing = usePricingSettings();
   const distanceMeters =
     delivery != null
       ? haversineMeters(
@@ -43,7 +45,7 @@ export function DeliveryCompleted({ onHome, onBack, delivery }: DeliveryComplete
         <Pressable onPress={onBack} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Back">
           <MaterialIcons name="arrow-back" size={22} color={COLORS.onSurface} />
         </Pressable>
-        <Text style={styles.brand}>FAMMO</Text>
+        <Text style={styles.brand}>FAMO</Text>
         <View style={styles.spacer} />
       </View>
 
@@ -68,7 +70,7 @@ export function DeliveryCompleted({ onHome, onBack, delivery }: DeliveryComplete
         <View style={styles.earningsCard}>
           <View style={styles.accent} />
           <Text style={styles.earnedLabel}>You earned</Text>
-          <Text style={styles.earnedValue}>{formatPrice(calculateFare(distanceMeters) ?? delivery?.price)}</Text>
+          <Text style={styles.earnedValue}>{formatPrice(calculateFare(distanceMeters, pricing) ?? delivery?.price)}</Text>
         </View>
 
         {/* Summary bento */}

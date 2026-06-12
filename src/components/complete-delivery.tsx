@@ -15,6 +15,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { Delivery } from '@/hooks/rider-api';
+import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
+
+import { Chat } from './chat';
+import { ChatBadge } from './chat-badge';
 
 const COLORS = {
   background: '#fbf9f9',
@@ -39,9 +43,22 @@ type CompleteDeliveryProps = {
   delivery?: Delivery | null;
 };
 
-export function CompleteDelivery({ onConfirm, onBack }: CompleteDeliveryProps) {
+export function CompleteDelivery({ onConfirm, onBack, delivery }: CompleteDeliveryProps) {
   const insets = useSafeAreaInsets();
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
+  const customerName =
+    delivery?.users?.full_name ?? delivery?.recipient_name ?? delivery?.sender_name ?? 'Customer';
+
+  const openChat = () => {
+    markRead();
+    setChatOpen(true);
+  };
+  const closeChat = () => {
+    markRead();
+    setChatOpen(false);
+  };
 
   const capturePhoto = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -81,6 +98,16 @@ export function CompleteDelivery({ onConfirm, onBack }: CompleteDeliveryProps) {
           <MaterialIcons name="arrow-back" size={22} color={COLORS.onSurface} />
         </Pressable>
         <Text style={styles.title}>Complete delivery</Text>
+        <View style={{ flex: 1 }} />
+        <Pressable
+          onPress={() => delivery?.id && openChat()}
+          disabled={!delivery?.id}
+          style={[styles.backBtn, !delivery?.id && styles.chatBtnDisabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Message customer">
+          <MaterialIcons name="chat-bubble-outline" size={22} color={COLORS.onSurface} />
+          <ChatBadge count={unread} />
+        </Pressable>
       </View>
 
       <ScrollView
@@ -140,6 +167,10 @@ export function CompleteDelivery({ onConfirm, onBack }: CompleteDeliveryProps) {
           <MaterialIcons name="arrow-forward" size={22} color={photoUri ? '#000000' : COLORS.outline} />
         </Pressable>
       </View>
+
+      {chatOpen ? (
+        <Chat deliveryId={delivery?.id ?? null} name={customerName} onBack={closeChat} />
+      ) : null}
     </View>
   );
 }
@@ -171,6 +202,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.surfaceContainerLow,
   },
+  chatBtnDisabled: { opacity: 0.4 },
   title: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: COLORS.onSurface },
   scrollContent: {
     paddingHorizontal: 20,

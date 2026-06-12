@@ -26,14 +26,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  let payload: { action?: string; offer_id?: string; rider_id?: string };
+  let payload: { action?: string; offer_id?: string; rider_id?: string; offerId?: string; riderId?: string };
   try {
     payload = await req.json();
   } catch {
     return json({ error: "invalid_json" }, 400);
   }
 
-  const { action, offer_id, rider_id } = payload;
+  const { action } = payload;
+  const offer_id = payload.offer_id ?? payload.offerId;
+  const rider_id = payload.rider_id ?? payload.riderId;
   if (!offer_id || !rider_id || (action !== "accept" && action !== "decline")) {
     return json({ error: "missing_or_invalid_fields" }, 400);
   }
@@ -69,7 +71,7 @@ Deno.serve(async (req) => {
     const { data } = await supabase
       .from("deliveries")
       .select(
-        "id, user_id, rider_id, status, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, users:user_id ( full_name, phone_number )",
+        "id, user_id, rider_id, status, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, payment_method, payment_screenshot_url, users:user_id ( full_name, phone_number )",
       )
       .eq("id", offer.delivery_id)
       .maybeSingle();

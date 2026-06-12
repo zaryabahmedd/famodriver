@@ -22,7 +22,7 @@ const COLORS = {
 const REASONS = [
   'Too far away',
   'Earning too low',
-  'Vehicle issue',
+  'Bike issue',
   'Taking a break',
   'Cargo not suitable',
   'Other',

@@ -1,11 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { getLocalAvatar, getRiderProfile } from '@/hooks/rider-account-api';
+import { useRiderProfileData } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -30,10 +29,8 @@ type MenuItem = {
 };
 
 const MENU: MenuItem[] = [
-  { icon: 'local-shipping', label: 'Vehicle' },
+  { icon: 'directions-bike', label: 'Bike' },
   { icon: 'description', label: 'Documents' },
-  { icon: 'account-balance', label: 'Bank account' },
-  { icon: 'notifications-active', label: 'Notifications' },
   { icon: 'translate', label: 'Language' },
   { icon: 'contact-support', label: 'Help & support' },
 ];
@@ -56,21 +53,8 @@ export function RiderProfile({
   onDeleteAccount,
 }: RiderProfileProps) {
   const insets = useSafeAreaInsets();
-  const [name, setName] = useState<string | null>(null);
-  const [avatar, setAvatar] = useState<string | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      const [profile, savedAvatar] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
-      if (!active) return;
-      if (profile?.full_name) setName(profile.full_name);
-      if (savedAvatar) setAvatar(savedAvatar);
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+  const { profile, avatar } = useRiderProfileData();
+  const name = profile?.full_name ?? null;
 
   return (
     <View style={styles.root}>
@@ -81,7 +65,7 @@ export function RiderProfile({
         <Pressable onPress={onMenu} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Menu">
           <MaterialIcons name="menu" size={24} color={COLORS.primary} />
         </Pressable>
-        <Text style={styles.brand}>FAMMO</Text>
+        <Text style={styles.brand}>FAMO</Text>
         <Pressable onPress={onNotifications} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Notifications">
           <MaterialIcons name="notifications" size={24} color={COLORS.primary} />
         </Pressable>

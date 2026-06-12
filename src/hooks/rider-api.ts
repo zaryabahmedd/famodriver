@@ -1,5 +1,5 @@
 import { callBackend } from './backend-client';
-import { getRiderToken } from './rider-session';
+import { getRiderToken, getStoredRiderId } from './rider-session';
 
 export type DeliveryStatus =
   | 'searching'
@@ -15,6 +15,7 @@ export type DeliveryCustomer = {
 
 export type PackageCategory = 'documents' | 'electronics' | 'fragile' | 'food' | 'other';
 export type PackageSize = 's' | 'm' | 'l' | 'xl';
+export type PaymentMethod = 'cod' | 'bank_transfer';
 
 export type Delivery = {
   id: string;
@@ -42,6 +43,10 @@ export type Delivery = {
   pickup_notes: string | null;
   dropoff_notes: string | null;
   special_instructions: string | null;
+  // How the customer chose to pay, and optional proof-of-payment screenshot
+  // they attached for bank transfers (both null on older orders).
+  payment_method: PaymentMethod | string | null;
+  payment_screenshot_url: string | null;
   users?: DeliveryCustomer | null;
 };
 
@@ -72,6 +77,17 @@ export function formatPackageSize(value: string | null | undefined): string | nu
   return PACKAGE_SIZE_LABELS[value] ?? value;
 }
 
+const PAYMENT_METHOD_LABELS: Record<string, string> = {
+  cod: 'Cash on Delivery (COD)',
+  bank_transfer: 'Bank Account',
+};
+
+/** Human-readable payment method label, or null when the customer hasn't specified one. */
+export function formatPaymentMethod(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return PAYMENT_METHOD_LABELS[value] ?? value;
+}
+
 export type DeliveryOffer = {
   id: string;
   delivery_id: string;
@@ -92,9 +108,13 @@ export type DeliveryOffer = {
 export async function fetchOfferDelivery(offerId: string): Promise<Delivery | null> {
   const token = await getRiderToken();
   if (!token) return null;
+  const riderId = await getStoredRiderId();
   const { data, error } = await callBackend('rider-deliveries', {
     action: 'offer_delivery',
     offer_id: offerId,
+    offerId,
+    rider_id: riderId ?? undefined,
+    riderId: riderId ?? undefined,
   }, { token });
   if (error) {
     console.warn('[rider-api] fetchOfferDelivery failed', error.message);
@@ -111,8 +131,11 @@ export async function fetchOfferDelivery(offerId: string): Promise<Delivery | nu
 export async function fetchActiveDelivery(): Promise<Delivery | null> {
   const token = await getRiderToken();
   if (!token) return null;
+  const riderId = await getStoredRiderId();
   const { data, error } = await callBackend('rider-deliveries', {
     action: 'active_delivery',
+    rider_id: riderId ?? undefined,
+    riderId: riderId ?? undefined,
   }, { token });
   if (error) {
     console.warn('[rider-api] fetchActiveDelivery failed', error.message);
@@ -138,9 +161,13 @@ export async function respondToOffer(
 ): Promise<RespondResult> {
   const token = await getRiderToken();
   if (!token) return { ok: false, error: 'no_session' };
+  const riderId = await getStoredRiderId();
   const { data, error } = await callBackend<RespondResult>('rider-respond-offer', {
     action,
     offerId,
+    offer_id: offerId,
+    rider_id: riderId ?? undefined,
+    riderId: riderId ?? undefined,
   }, { token });
   if (error) return { ok: false, error: data?.error ?? error.message };
   return data as RespondResult;
@@ -160,9 +187,13 @@ export async function updateDeliveryStatus(
 ): Promise<UpdateResult> {
   const token = await getRiderToken();
   if (!token) return { ok: false, error: 'no_session' };
+  const riderId = await getStoredRiderId();
   const { data, error } = await callBackend<UpdateResult>('rider-update-delivery', {
     deliveryId,
+    delivery_id: deliveryId,
     status,
+    rider_id: riderId ?? undefined,
+    riderId: riderId ?? undefined,
   }, { token });
   if (error) return { ok: false, error: data?.error ?? error.message };
   return data as UpdateResult;
@@ -181,8 +212,12 @@ export type CancelResult = {
 export async function cancelDelivery(deliveryId: string): Promise<CancelResult> {
   const token = await getRiderToken();
   if (!token) return { ok: false, error: 'no_session' };
+  const riderId = await getStoredRiderId();
   const { data, error } = await callBackend<CancelResult>('rider-cancel-delivery', {
     deliveryId,
+    delivery_id: deliveryId,
+    rider_id: riderId ?? undefined,
+    riderId: riderId ?? undefined,
   }, { token });
   if (error) return { ok: false, error: data?.error ?? error.message };
   return data as CancelResult;

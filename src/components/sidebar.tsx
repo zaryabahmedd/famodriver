@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useRiderProfileData } from '@/hooks/rider-account-api';
 import { useAuth } from '@/hooks/use-auth';
 
 const COLORS = {
@@ -22,7 +23,7 @@ const COLORS = {
   online: '#22c55e',
 };
 
-const PROFILE_URI =
+const FALLBACK_AVATAR =
   'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 type NavItem = {
@@ -34,8 +35,7 @@ type NavItem = {
 const NAV: NavItem[] = [
   { icon: 'home', label: 'Home', active: true },
   { icon: 'history', label: 'Job History' },
-  { icon: 'account-balance-wallet', label: 'Wallet' },
-  { icon: 'delivery-dining', label: 'Vehicle Details' },
+  { icon: 'directions-bike', label: 'Bike Details' },
   { icon: 'star', label: 'Reviews' },
 ];
 
@@ -47,6 +47,7 @@ type SidebarProps = {
 export function Sidebar({ onClose, onNavigate }: SidebarProps) {
   const insets = useSafeAreaInsets();
   const { logout } = useAuth();
+  const { profile, avatar } = useRiderProfileData();
   const progress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -76,11 +77,11 @@ export function Sidebar({ onClose, onNavigate }: SidebarProps) {
           <View style={styles.profileBlock}>
             <View style={styles.profileRow}>
               <View style={styles.avatarWrap}>
-                <Image source={{ uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
+                <Image source={{ uri: avatar || FALLBACK_AVATAR }} style={styles.avatar} contentFit="cover" />
                 <View style={styles.onlineDot} />
               </View>
               <View style={styles.profileText}>
-                <Text style={styles.name}>Rashid Ahmed</Text>
+                <Text style={styles.name}>{profile?.full_name || 'Rider'}</Text>
                 <View style={styles.metaRow}>
                   <MaterialIcons name="star" size={16} color={COLORS.primary} />
                   <Text style={styles.meta}>4.9 • Online</Text>
@@ -126,7 +127,10 @@ export function Sidebar({ onClose, onNavigate }: SidebarProps) {
             <View style={styles.divider} />
 
             <Pressable
-              onPress={onClose}
+              onPress={() => {
+                onClose();
+                onNavigate?.('Help & Support');
+              }}
               style={({ pressed }) => [styles.navItem, pressed && styles.navItemPressed]}
               accessibilityRole="button">
               <MaterialIcons name="help" size={24} color={COLORS.onSurfaceVariant} />

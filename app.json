@@ -16,7 +16,12 @@
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/images/android-icon-foreground.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyArKLk-HgW6rzHvL30UG70sux3FjepcSSI"
+        }
+      }
     },
     "web": {
       "output": "static",
@@ -43,6 +48,14 @@
             "backgroundColor": "#f8f9ff",
             "image": "./assets/images/FAMO-logo-dark.png"
           }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/android-icon-foreground.png",
+          "color": "#fbd103",
+          "defaultChannel": "delivery-offers"
         }
       ]
     ],

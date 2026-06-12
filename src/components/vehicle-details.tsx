@@ -39,12 +39,9 @@ type Vehicle = {
 
 const VEHICLES: Vehicle[] = [
   { key: 'ebike', label: 'Electric Bike', tag: 'ELECTRIC', icon: 'moped' },
-  { key: 'motorbike', label: 'Motorbike', tag: 'PETROL', icon: 'two-wheeler' },
-  { key: 'car', label: 'Car', tag: '4 WHEELS', icon: 'directions-car' },
-  { key: 'van', label: 'Van', tag: 'CARGO', icon: 'airport-shuttle' },
 ];
 
-type FieldKey = 'brand' | 'model' | 'year' | 'plate';
+type FieldKey = 'brand' | 'model' | 'year' | 'registration' | 'battery';
 
 type Field = {
   key: FieldKey;
@@ -59,7 +56,8 @@ const FIELDS: Field[] = [
   { key: 'brand', label: 'BRAND', placeholder: 'Oraimo / Spiro', icon: 'factory' },
   { key: 'model', label: 'MODEL', placeholder: 'Electric Bike', icon: 'settings' },
   { key: 'year', label: 'YEAR', placeholder: '2022', icon: 'calendar-today', keyboardType: 'number-pad' },
-  { key: 'plate', label: 'PLATE NUMBER', placeholder: 'ABC 1234', icon: 'badge', uppercase: true },
+  { key: 'registration', label: 'REGISTRATION NUMBER', placeholder: 'ABC 1234', icon: 'badge', uppercase: true },
+  { key: 'battery', label: 'BATTERY CAPACITY', placeholder: '60V 20Ah', icon: 'battery-charging-full' },
 ];
 
 type VehicleDetailsProps = {
@@ -75,13 +73,14 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
     brand: '',
     model: '',
     year: '',
-    plate: '',
+    registration: '',
+    battery: '',
   });
   const [focused, setFocused] = useState<FieldKey | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleContinue = async () => {
-    if (!values.brand || !values.model || !values.year || !values.plate) {
+    if (!values.brand || !values.model || !values.year || !values.registration || !values.battery) {
       alert('Please fill in all vehicle fields.');
       return;
     }
@@ -93,7 +92,8 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
         vehicle_brand: values.brand,
         vehicle_model: values.model,
         vehicle_year: values.year,
-        vehicle_plate: values.plate,
+        vehicle_plate: values.registration,
+        vehicle_battery_capacity: values.battery,
       });
       if (!rider) {
         alert('Could not save your vehicle details. Please try again.');
@@ -137,9 +137,9 @@ export function VehicleDetails({ onContinue, onBack }: VehicleDetailsProps) {
           bounces={false}>
           {/* Heading */}
           <View style={styles.heading}>
-            <Text style={styles.title}>Vehicle details</Text>
+            <Text style={styles.title}>Bike details</Text>
             <Text style={styles.subtitle}>
-              Select your vehicle type and enter its details.
+              Select your bike type and enter its details.
             </Text>
           </View>
 

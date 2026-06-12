@@ -42,6 +42,32 @@ function isLivePendingOffer(offer: DeliveryOffer): boolean {
   return offer.status === 'pending' && new Date(offer.expires_at).getTime() > Date.now();
 }
 
+/**
+ * Resolve a usable delivery_offers id for a response. The realtime payload that
+ * surfaced the offer can arrive column-stripped under RLS (no `id`), so fall
+ * back to reading the rider's live pending offer straight from the table, which
+ * always includes the primary key.
+ */
+async function resolveOfferId(
+  offer: DeliveryOffer,
+  riderId: string,
+): Promise<string | null> {
+  if (offer.id) return offer.id;
+  const { data, error } = await supabase
+    .from('delivery_offers')
+    .select('id')
+    .eq('rider_id', riderId)
+    .eq('status', 'pending')
+    .gt('expires_at', new Date().toISOString())
+    .order('expires_at', { ascending: true })
+    .limit(1);
+  if (error) {
+    console.warn('[use-rider-jobs] resolveOfferId failed', { riderId, error: error.message });
+    return null;
+  }
+  return (data?.[0] as { id: string } | undefined)?.id ?? null;
+}
+
 function loggableOffer(offer: DeliveryOffer) {
   return {
     id: offer.id,
@@ -50,6 +76,10 @@ function loggableOffer(offer: DeliveryOffer) {
     status: offer.status,
     expires_at: offer.expires_at,
   };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -206,9 +236,12 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
         return;
       }
 
-      const current = pendingOfferRef.current;
-      if (current && !isLivePendingOffer(current)) {
-        clearPendingOffer(source, current.id);
+      // No live pending offer for this rider in the database. Clear any card
+      // still on screen. We intentionally do NOT gate on isLivePendingOffer
+      // here: a column-stripped realtime payload can leave a stale local offer
+      // whose status still reads 'pending', which would otherwise never clear.
+      if (pendingOfferRef.current) {
+        clearPendingOffer(source);
       }
     },
     [clearPendingOffer, online, riderId, showPendingOffer],
@@ -288,12 +321,17 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
           filter: `rider_id=eq.${riderId}`,
         },
         async (payload) => {
-          const offer = payload.new as DeliveryOffer;
+          const offer = payload.new as Partial<DeliveryOffer>;
           console.log('[use-rider-jobs] realtime INSERT delivery_offers', {
             rider_id: riderId,
-            offer: loggableOffer(offer),
+            offer_id: offer?.id ?? null,
           });
-          await showPendingOffer(offer, 'realtime_insert');
+          // Treat the realtime event as a notification only. Under RLS the anon
+          // payload can arrive without its column data (notably no `id`), which
+          // previously surfaced an offer the rider could not accept (the POST
+          // carried an empty offerId). Re-read the authoritative pending row
+          // (select *) so the offer always carries its real id.
+          await fetchCurrentPendingOffer('realtime_insert');
         },
       )
       .on(
@@ -305,19 +343,22 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
           filter: `rider_id=eq.${riderId}`,
         },
         (payload) => {
-          const offer = payload.new as DeliveryOffer;
+          const offer = payload.new as Partial<DeliveryOffer>;
           console.log('[use-rider-jobs] realtime UPDATE delivery_offers', {
             rider_id: riderId,
-            offer: loggableOffer(offer),
+            offer_id: offer?.id ?? null,
+            offer_status: offer?.status ?? null,
           });
 
           // Phase 4: the offer for our ACTIVE job just went terminal (the
           // customer cancelled after we accepted). Kill the active job and
-          // signal the UI to return Home.
+          // signal the UI to return Home. (Guarded on offer.status existing so a
+          // column-stripped payload can't false-trigger.)
           const active = activeRef.current;
           if (
             active &&
             offer.delivery_id === active.id &&
+            !!offer.status &&
             offer.status !== 'pending' &&
             offer.status !== 'accepted'
           ) {
@@ -331,12 +372,10 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
             return;
           }
 
-          if (isLivePendingOffer(offer)) {
-            void showPendingOffer(offer, 'realtime_update');
-            return;
-          }
-
-          clearPendingOffer('realtime_update', offer.id);
+          // Re-read the authoritative pending row rather than trusting the
+          // (possibly column-stripped) payload. This surfaces a still-live offer
+          // with its real id and clears the card once it is no longer pending.
+          void fetchCurrentPendingOffer('realtime_update');
         },
       )
       .subscribe((status, error) => {
@@ -362,18 +401,42 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
     if (!pendingOffer || !riderId || busy) return false;
     setBusy(true);
     try {
+      const offerId = await resolveOfferId(pendingOffer, riderId);
+      if (!offerId) {
+        console.warn('[use-rider-jobs] accept aborted: could not resolve offer id', {
+          rider_id: riderId,
+        });
+        dismissOffer();
+        return false;
+      }
       console.log('[use-rider-jobs] accepting offer', {
         rider_id: riderId,
-        offer_id: pendingOffer.id,
-        delivery_id: pendingOffer.delivery_id,
+        offer_id: offerId,
+        delivery_id: pendingOffer.delivery_id ?? null,
       });
-      const res = await respondToOffer('accept', pendingOffer.id);
+      const res = await respondToOffer('accept', offerId);
       if (res.ok) {
-        // The respond fn only confirms success; pull the full assigned job.
-        const active = await fetchActiveDelivery();
-        if (active) setActiveDelivery(active);
-        dismissOffer();
-        return !!active;
+        // Give the backend a brief window to persist the accepted job before
+        // hiding the request. If the job never materializes, keep the offer
+        // visible so the rider can retry instead of bouncing back to Home.
+        let active: Delivery | null = null;
+        for (let attempt = 0; attempt < 3 && !active; attempt += 1) {
+          active = await fetchActiveDelivery();
+          if (!active && attempt < 2) {
+            await sleep(300 * (attempt + 1));
+          }
+        }
+        if (active) {
+          setActiveDelivery(active);
+          dismissOffer();
+          return true;
+        }
+        console.warn('[use-rider-jobs] accept confirmed but active delivery was not readable yet', {
+          rider_id: riderId,
+          offer_id: offerId,
+        });
+        await fetchCurrentPendingOffer('accept_pending');
+        return false;
       }
       // Offer was taken/expired before we responded.
       console.warn('[use-rider-jobs] accept offer failed', {
@@ -381,23 +444,30 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
         offer_id: pendingOffer.id,
         error: res.error,
       });
-      dismissOffer();
+      await fetchCurrentPendingOffer('accept_failed');
       return false;
     } finally {
       setBusy(false);
     }
-  }, [pendingOffer, riderId, busy, dismissOffer]);
+  }, [pendingOffer, riderId, busy, dismissOffer, fetchCurrentPendingOffer]);
 
   const declineOffer = useCallback(async () => {
     const offer = pendingOffer;
     dismissOffer();
     if (offer && riderId) {
+      const offerId = await resolveOfferId(offer, riderId);
+      if (!offerId) {
+        console.warn('[use-rider-jobs] decline skipped: could not resolve offer id', {
+          rider_id: riderId,
+        });
+        return;
+      }
       console.log('[use-rider-jobs] declining offer', {
         rider_id: riderId,
-        offer_id: offer.id,
-        delivery_id: offer.delivery_id,
+        offer_id: offerId,
+        delivery_id: offer.delivery_id ?? null,
       });
-      const res = await respondToOffer('decline', offer.id);
+      const res = await respondToOffer('decline', offerId);
       if (!res.ok) {
         console.warn('[use-rider-jobs] decline offer failed', {
           rider_id: riderId,

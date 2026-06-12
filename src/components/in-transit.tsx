@@ -8,9 +8,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RouteMap } from '@/components/route-map';
 import { estimateMinutes, formatDuration, formatKm, haversineMeters, maneuverIcon, openTurnByTurn } from '@/hooks/maps';
 import type { Delivery } from '@/hooks/rider-api';
+import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
 import { useTurnByTurn } from '@/hooks/use-navigation';
 import { CallScreen } from './call-screen';
 import { Chat } from './chat';
+import { ChatBadge } from './chat-badge';
 
 const COLORS = {
   mapBg: '#fbf9f9',
@@ -42,6 +44,16 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
   const insets = useSafeAreaInsets();
   const [chatOpen, setChatOpen] = useState(false);
   const [callOpen, setCallOpen] = useState(false);
+  const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
+
+  const openChat = () => {
+    markRead();
+    setChatOpen(true);
+  };
+  const closeChat = () => {
+    markRead();
+    setChatOpen(false);
+  };
 
   const dropoff = delivery ? { lat: delivery.dropoff_lat, lng: delivery.dropoff_lng } : null;
   const dropoffAddress = delivery?.dropoff_address ?? 'Drop-off location';
@@ -140,8 +152,9 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
             <Pressable onPress={() => setCallOpen(true)} style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Call">
               <MaterialIcons name="call" size={22} color={COLORS.onSurface} />
             </Pressable>
-            <Pressable onPress={() => setChatOpen(true)} style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Message">
+            <Pressable onPress={openChat} style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Message">
               <MaterialIcons name="chat-bubble-outline" size={22} color={COLORS.onSurface} />
+              <ChatBadge count={unread} />
             </Pressable>
           </View>
         </View>
@@ -164,9 +177,11 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
 
       {chatOpen ? (
         <Chat
-          onBack={() => setChatOpen(false)}
+          deliveryId={delivery?.id ?? null}
+          name={delivery?.users?.full_name ?? recipientName}
+          onBack={closeChat}
           onCall={() => {
-            setChatOpen(false);
+            closeChat();
             setCallOpen(true);
           }}
         />

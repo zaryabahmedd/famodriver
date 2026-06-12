@@ -14,9 +14,9 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { GoogleIcon } from '@/components/google-icon';
 import { BACKEND_URL, callBackend } from '@/hooks/backend-client';
-import { setRiderSession } from '@/hooks/rider-session';
+import { getRiderProfile } from '@/hooks/rider-account-api';
+import { clearRiderSession, setRiderSession } from '@/hooks/rider-session';
 
 const COLORS = {
   background: '#fbf9f9',
@@ -73,6 +73,15 @@ export function Login({ note, onLogin, onSignUp, onForgotPassword, onBack }: Log
         console.error('[Login] Login failed:', { error, data, reason });
         if (reason === 'invalid_credentials' || reason === 'login_failed') {
           alert('Incorrect email or password.');
+        } else if (reason === 'not_approved') {
+          const status = data?.status as string | undefined;
+          if (status === 'pending_approval') {
+            alert('Your account is pending admin approval. You will be notified once approved.');
+          } else if (status === 'rejected') {
+            alert('Your account application has been rejected. Please contact support.');
+          } else {
+            alert('Your account is not yet approved. Please complete your profile and submit your application.');
+          }
         } else if (reason === 'timeout') {
           alert(`Connection timed out when reaching backend at ${urlToTest}.\n\nPlease ensure your Node.js backend is running at that address and accessible by this device.`);
         } else {
@@ -88,6 +97,22 @@ export function Login({ note, onLogin, onSignUp, onForgotPassword, onBack }: Log
         riderId: data.rider_id as string,
         expiresAt: data.expires_at as string,
       });
+
+      // Block access until the admin approves the rider account.
+      const profile = await getRiderProfile();
+      if (!profile || profile.status !== 'approved') {
+        await clearRiderSession();
+        if (profile?.status === 'pending_approval' || profile?.status === 'pending_verification') {
+          alert('Your account is pending admin approval. You will be notified once approved.');
+        } else if (profile?.status === 'rejected') {
+          alert('Your application has been rejected. Please contact support.');
+        } else {
+          alert('Your account has not been approved yet. Please complete your application.');
+        }
+        setLoading(false);
+        return;
+      }
+
       onLogin();
     } catch (err: any) {
       console.error('[Login] Unexpected error during login flow:', err);
@@ -119,7 +144,7 @@ export function Login({ note, onLogin, onSignUp, onForgotPassword, onBack }: Log
           <View style={styles.header}>
             <Image source={{ uri: LOGO_URI }} style={styles.logo} contentFit="contain" />
             <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>Log in to continue delivering with FAMMO.</Text>
+            <Text style={styles.subtitle}>Log in to continue delivering with FAMO.</Text>
           </View>
 
           {note ? (
@@ -183,20 +208,6 @@ export function Login({ note, onLogin, onSignUp, onForgotPassword, onBack }: Log
               style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed, loading && { opacity: 0.6 }]}
               accessibilityRole="button">
               <Text style={styles.primaryText}>{loading ? 'Logging in...' : 'Log in'}</Text>
-            </Pressable>
-
-            <View style={styles.dividerRow}>
-              <View style={styles.divider} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.divider} />
-            </View>
-
-            <Pressable
-              onPress={onLogin}
-              style={({ pressed }) => [styles.googleBtn, pressed && styles.googleBtnPressed]}
-              accessibilityRole="button">
-              <GoogleIcon size={20} />
-              <Text style={styles.googleText}>Continue with Google</Text>
             </Pressable>
           </View>
 

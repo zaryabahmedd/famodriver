@@ -1,6 +1,6 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 
-import { BankAccount } from '@/components/bank-account';
 import { DeleteAccount } from '@/components/delete-account';
 import { Documents } from '@/components/documents';
 import { EditProfile } from '@/components/edit-profile';
@@ -17,7 +17,6 @@ import { useAuth } from '@/hooks/use-auth';
 type Screen =
   | 'vehicle'
   | 'documents'
-  | 'bank'
   | 'settings'
   | 'editProfile'
   | 'notifications'
@@ -27,6 +26,7 @@ type Screen =
   | 'deleteAccount';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const { logout } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState<Screen | null>(null);
@@ -35,19 +35,17 @@ export default function ProfileScreen() {
   const close = () => setActive(null);
 
   const handleMenuSelect = (label: string) => {
-    if (label === 'Vehicle') setActive('vehicle');
+    if (label === 'Bike') setActive('vehicle');
     else if (label === 'Documents') setActive('documents');
-    else if (label === 'Bank account') setActive('bank');
-    else if (label === 'Notifications') setActive('settings');
     else if (label === 'Language') setActive('settings');
-    else if (label === 'Help & support') setActive('settings');
+    else if (label === 'Help & support') router.push('/help');
   };
 
   const handleSidebarNavigate = (label: string) => {
     if (label === 'Reviews') setActive('reviews');
     else if (label === 'Wallet') setActive('wallet');
     else if (label === 'Job History') setActive('history');
-    else if (label === 'Vehicle Details') setActive('vehicle');
+    else if (label === 'Bike Details') setActive('vehicle');
   };
 
   return (
@@ -64,7 +62,6 @@ export default function ProfileScreen() {
 
       {active === 'vehicle' && <VehicleInfo onBack={close} />}
       {active === 'documents' && <Documents onBack={close} />}
-      {active === 'bank' && <BankAccount onBack={close} />}
       {active === 'settings' && <Settings onBack={close} onLogout={logout} />}
       {active === 'editProfile' && (
         <EditProfile

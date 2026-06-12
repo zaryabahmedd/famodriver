@@ -7,11 +7,10 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import AppTabs from '@/components/app-tabs';
 import { Onboarding } from '@/components/onboarding';
 import { SignUpFlow } from '@/components/sign-up-flow';
-import { clearRiderSession } from '@/hooks/rider-session';
+import { clearRiderSession, getRiderToken } from '@/hooks/rider-session';
 import { AuthContext } from '@/hooks/use-auth';
 
 const ONBOARDING_KEY = 'famo.onboardingComplete';
-const AUTH_KEY = 'famo.authComplete';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -19,13 +18,16 @@ export default function TabLayout() {
   const [authDone, setAuthDone] = useState<boolean | null>(null);
 
   useEffect(() => {
+    // Use the actual session token as the source of truth for auth state.
+    // getRiderToken() returns null if the token is missing or expired, and
+    // automatically clears the stale token from the keystore in that case.
     Promise.all([
       AsyncStorage.getItem(ONBOARDING_KEY),
-      AsyncStorage.getItem(AUTH_KEY),
+      getRiderToken(),
     ])
-      .then(([onboarding, auth]) => {
+      .then(([onboarding, token]) => {
         setOnboardingDone(onboarding === 'true');
-        setAuthDone(auth === 'true');
+        setAuthDone(token !== null);
       })
       .catch(() => {
         setOnboardingDone(false);
@@ -38,14 +40,13 @@ export default function TabLayout() {
     AsyncStorage.setItem(ONBOARDING_KEY, 'true').catch(() => {});
   };
 
+  // Token is already in the keystore after login — just update React state.
   const completeAuth = () => {
     setAuthDone(true);
-    AsyncStorage.setItem(AUTH_KEY, 'true').catch(() => {});
   };
 
   const logout = () => {
     setAuthDone(false);
-    AsyncStorage.removeItem(AUTH_KEY).catch(() => {});
     clearRiderSession();
   };
 

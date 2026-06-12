@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -6,6 +7,12 @@ import { getRiderToken } from './rider-session';
 import { supabase } from './supabase-client';
 
 const WRITE_INTERVAL_MS = 10_000;
+
+// Persists the rider's online *intent* across app restarts. Once a rider goes
+// online they stay online — through backgrounding, force-quit and relaunch —
+// until they explicitly tap Offline. On launch we read this flag and, if set,
+// silently resume location streaming + server availability.
+const ONLINE_FLAG_KEY = 'famo.online';
 
 export type RiderLocationState = {
   online: boolean;
@@ -192,6 +199,8 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
 
       setOnline(true);
       setStarting(false);
+      // Remember the online intent so a relaunch resumes online automatically.
+      void AsyncStorage.setItem(ONLINE_FLAG_KEY, '1');
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start location.');
@@ -203,6 +212,9 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
   const goOffline = useCallback(async () => {
     stopWatcher();
     setOnline(false);
+    // Clear the persisted online intent — only an explicit Offline tap does this,
+    // so the rider stays online across restarts until they choose to stop.
+    void AsyncStorage.removeItem(ONLINE_FLAG_KEY);
     const last = lastCoords.current;
     // Flip availability off server-side. Requires coords (the function validates
     // them); if we never got a fix there's nothing online to clear.
@@ -210,6 +222,21 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
       await writeLocation(last.lat, last.lng, { available: false, force: true });
     }
   }, [stopWatcher, writeLocation]);
+
+  // On launch (once the rider id is known), resume online automatically if the
+  // rider was online when the app last closed. Runs once per mount.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (!riderId || restoredRef.current) return;
+    restoredRef.current = true;
+    void (async () => {
+      const flag = await AsyncStorage.getItem(ONLINE_FLAG_KEY);
+      if (flag === '1') {
+        console.log('[use-rider-location] resuming persisted online state', { rider_id: riderId });
+        await goOnline();
+      }
+    })();
+  }, [riderId, goOnline]);
 
   // Tear everything down on unmount.
   useEffect(() => {

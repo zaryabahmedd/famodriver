@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useDeliveryChat } from '@/hooks/use-delivery-chat';
+
 const COLORS = {
   surface: '#fbf9f9',
   surfaceLowest: '#ffffff',
@@ -26,7 +28,6 @@ const COLORS = {
   onPrimaryContainer: '#6d5a00',
   outline: '#7f775f',
   outlineVariant: '#d0c6ab',
-  success: '#22c55e',
 };
 
 const AVATAR_URI =
@@ -34,39 +35,28 @@ const AVATAR_URI =
 
 const QUICK_REPLIES = ['On my way!', "I'm outside", 'Running 5 min late', 'Where exactly?'];
 
-type Message = {
-  id: number;
-  text: string;
-  fromMe: boolean;
-  time: string;
-};
-
-const INITIAL: Message[] = [
-  { id: 1, text: 'Hi! I just picked up your package.', fromMe: true, time: '2:02 PM' },
-  { id: 2, text: 'Great, thank you! How long will it take?', fromMe: false, time: '2:03 PM' },
-  { id: 3, text: 'About 15 minutes. Traffic is light.', fromMe: true, time: '2:03 PM' },
-  { id: 4, text: 'Perfect. Please ring the bell when you arrive.', fromMe: false, time: '2:04 PM' },
-];
+/** Format a message timestamp as a short clock time, e.g. "2:03 PM". */
+function formatMessageTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
 
 type ChatProps = {
+  /** Active delivery id — the chat channel is scoped to this job. */
+  deliveryId?: string | null;
   name?: string;
   onBack?: () => void;
   onCall?: () => void;
 };
 
-export function Chat({ name = 'Sara Ali', onBack, onCall }: ChatProps) {
+export function Chat({ deliveryId, name = 'Customer', onBack, onCall }: ChatProps) {
   const insets = useSafeAreaInsets();
-  const [messages, setMessages] = useState<Message[]>(INITIAL);
+  const { messages, send: sendMessage } = useDeliveryChat(deliveryId, 'rider');
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
   const send = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) return;
-    setMessages((prev) => [
-      ...prev,
-      { id: prev.length + 1, text: trimmed, fromMe: true, time: 'Now' },
-    ]);
+    if (!text.trim()) return;
+    sendMessage(text);
     setDraft('');
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   };
@@ -83,11 +73,10 @@ export function Chat({ name = 'Sara Ali', onBack, onCall }: ChatProps) {
         <View style={styles.headerInfo}>
           <View style={styles.avatarWrap}>
             <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
-            <View style={styles.onlineDot} />
           </View>
           <View>
             <Text style={styles.headerName}>{name}</Text>
-            <Text style={styles.headerStatus}>Recipient · Online</Text>
+            <Text style={styles.headerStatus}>Customer</Text>
           </View>
         </View>
         <Pressable onPress={onCall} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Call">
@@ -97,34 +86,44 @@ export function Chat({ name = 'Sara Ali', onBack, onCall }: ChatProps) {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={insets.top + 56}>
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 56 : 0}>
         <ScrollView
           ref={scrollRef}
+          style={styles.messagesScroll}
           contentContainerStyle={styles.messages}
           showsVerticalScrollIndicator={false}
           onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}>
           <Text style={styles.dateChip}>Today</Text>
-          {messages.map((msg) => (
-            <View
-              key={msg.id}
-              style={[styles.bubbleRow, msg.fromMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
-              <View style={[styles.bubble, msg.fromMe ? styles.bubbleMe : styles.bubbleThem]}>
-                <Text style={[styles.bubbleText, msg.fromMe && styles.bubbleTextMe]}>{msg.text}</Text>
-                <Text style={[styles.bubbleTime, msg.fromMe && styles.bubbleTimeMe]}>{msg.time}</Text>
+          {messages.length === 0 ? (
+            <Text style={styles.emptyHint}>
+              Messages you send here go straight to the customer's app, in real time.
+            </Text>
+          ) : null}
+          {messages.map((msg) => {
+            const fromMe = msg.sender === 'rider';
+            return (
+              <View key={msg.id} style={[styles.bubbleRow, fromMe ? styles.bubbleRowMe : styles.bubbleRowThem]}>
+                <View style={[styles.bubble, fromMe ? styles.bubbleMe : styles.bubbleThem]}>
+                  <Text style={[styles.bubbleText, fromMe && styles.bubbleTextMe]}>{msg.text}</Text>
+                  <Text style={[styles.bubbleTime, fromMe && styles.bubbleTimeMe]}>
+                    {formatMessageTime(msg.sentAt)}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </ScrollView>
 
         {/* Quick replies */}
         <ScrollView
           horizontal
+          style={styles.quickScroll}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.quickRow}>
           {QUICK_REPLIES.map((reply) => (
             <Pressable key={reply} onPress={() => send(reply)} style={styles.quickChip} accessibilityRole="button">
-              <Text style={styles.quickText}>{reply}</Text>
+              <Text style={styles.quickText} numberOfLines={1}>{reply}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -138,7 +137,9 @@ export function Chat({ name = 'Sara Ali', onBack, onCall }: ChatProps) {
               placeholder="Type a message"
               placeholderTextColor={COLORS.outline}
               style={styles.input}
-              multiline
+              returnKeyType="send"
+              enablesReturnKeyAutomatically
+              blurOnSubmit={false}
               onSubmitEditing={() => send(draft)}
             />
           </View>
@@ -177,20 +178,10 @@ const styles = StyleSheet.create({
   headerInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatarWrap: { position: 'relative' },
   avatar: { width: 40, height: 40, borderRadius: 20 },
-  onlineDot: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: COLORS.success,
-    borderWidth: 2,
-    borderColor: COLORS.surface,
-  },
   headerName: { fontSize: 16, fontWeight: '700', color: COLORS.onSurface },
   headerStatus: { fontSize: 12, color: COLORS.onSurfaceVariant },
-  messages: { padding: 16, gap: 10, maxWidth: 480, width: '100%', alignSelf: 'center' },
+  messagesScroll: { flex: 1 },
+  messages: { flexGrow: 1, padding: 16, gap: 10, maxWidth: 480, width: '100%', alignSelf: 'center' },
   dateChip: {
     alignSelf: 'center',
     fontSize: 12,
@@ -201,6 +192,14 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     overflow: 'hidden',
     marginBottom: 4,
+  },
+  emptyHint: {
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.onSurfaceVariant,
+    paddingHorizontal: 24,
+    marginTop: 12,
   },
   bubbleRow: { flexDirection: 'row' },
   bubbleRowMe: { justifyContent: 'flex-end' },
@@ -217,8 +216,17 @@ const styles = StyleSheet.create({
   bubbleTextMe: { color: COLORS.onPrimaryContainer },
   bubbleTime: { fontSize: 10, color: COLORS.onSurfaceVariant, alignSelf: 'flex-end' },
   bubbleTimeMe: { color: COLORS.onPrimaryContainer, opacity: 0.7 },
-  quickRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 8 },
+  quickScroll: { flexGrow: 0, flexShrink: 0 },
+  quickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
   quickChip: {
+    alignSelf: 'center',
+    flexShrink: 0,
     paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 9999,

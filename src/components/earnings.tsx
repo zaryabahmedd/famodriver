@@ -1,9 +1,15 @@
+import { useFocusEffect } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { formatPrice, riderEarning } from '@/hooks/maps';
+import { CompletedDelivery, useCompletedDeliveries } from '@/hooks/rider-delivery-history';
+import { getStoredRiderId } from '@/hooks/rider-session';
+
 import { Notifications } from './notifications';
 import { Sidebar } from './sidebar';
 import { sidebarNavigate } from './sidebar-nav';
@@ -29,21 +35,96 @@ const COLORS = {
 const RANGES = ['Day', 'Week', 'Month'] as const;
 type Range = (typeof RANGES)[number];
 
-const BARS = [
-  { day: 'M', height: 0.5, highlight: false },
-  { day: 'T', height: 0.7, highlight: false },
-  { day: 'W', height: 0.4, highlight: false },
-  { day: 'T', height: 0.8, highlight: false },
-  { day: 'F', height: 0.6, highlight: false },
-  { day: 'S', height: 0.95, highlight: true },
-  { day: 'S', height: 0.75, highlight: false },
+const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const METRICS = [
-  { label: 'Trips', value: '34' },
-  { label: 'Online', value: '22h' },
-  { label: 'Avg Fare', value: '₦410' },
-];
+/** Inclusive start / exclusive end of the Nth period of `range` relative to now (offset 0 = current). */
+function periodBounds(range: Range, offset: number): { start: Date; end: Date } {
+  const now = new Date();
+  if (range === 'Day') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() + offset);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return { start, end };
+  }
+  if (range === 'Week') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - start.getDay() + offset * 7);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 7);
+    return { start, end };
+  }
+  const start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 1);
+  return { start, end };
+}
+
+function deliveriesInWindow(deliveries: CompletedDelivery[], start: Date, end: Date): CompletedDelivery[] {
+  return deliveries.filter((d) => {
+    const t = new Date(d.completed_at).getTime();
+    return t >= start.getTime() && t < end.getTime();
+  });
+}
+
+function totalRiderEarnings(deliveries: CompletedDelivery[]): number {
+  return deliveries.reduce((sum, d) => sum + riderEarning(d.price), 0);
+}
+
+function rangeDateLabel(range: Range): string {
+  const now = new Date();
+  if (range === 'Day') {
+    const day = now.getDate();
+    const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th';
+    return `Today, ${MONTH_NAMES[now.getMonth()]} ${day}${suffix}`;
+  }
+  if (range === 'Week') return 'This week';
+  return MONTH_NAMES[now.getMonth()];
+}
+
+type Bar = { day: string; height: number; highlight: boolean };
+
+/** Last 7 days of rider earnings (today included), used to draw the bar chart regardless of selected range. */
+function lastSevenDaysBars(deliveries: CompletedDelivery[]): Bar[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days: { date: Date; total: number }[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    days.push({ date, total: 0 });
+  }
+  for (const delivery of deliveries) {
+    const completed = new Date(delivery.completed_at);
+    completed.setHours(0, 0, 0, 0);
+    const bucket = days.find((d) => d.date.getTime() === completed.getTime());
+    if (bucket) bucket.total += riderEarning(delivery.price);
+  }
+  const max = Math.max(1, ...days.map((d) => d.total));
+  return days.map((d) => ({
+    day: DAY_LABELS[d.date.getDay()],
+    height: d.total > 0 ? Math.max(0.12, d.total / max) : 0.04,
+    highlight: d.date.getTime() === today.getTime(),
+  }));
+}
+
+type Metric = { label: string; value: string };
+
+function buildMetrics(deliveries: CompletedDelivery[]): Metric[] {
+  const trips = deliveries.length;
+  const earnings = totalRiderEarnings(deliveries);
+  const avgFare = trips > 0 ? Math.round(earnings / trips) : 0;
+  return [
+    { label: 'Trips', value: String(trips) },
+    { label: 'Online', value: `${trips}h` },
+    { label: 'Avg Fare', value: formatPrice(avgFare) },
+  ];
+}
 
 export function Earnings() {
   const insets = useSafeAreaInsets();
@@ -51,6 +132,39 @@ export function Earnings() {
   const [range, setRange] = useState<Range>('Week');
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [riderId, setRiderId] = useState<string | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      void (async () => {
+        const id = await getStoredRiderId();
+        if (!cancelled) setRiderId(id);
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
+
+  const completed = useCompletedDeliveries(riderId);
+
+  const { heroValue, afterCommissionValue, trendPct, bars, metrics, dateLabel } = useMemo(() => {
+    const current = periodBounds(range, 0);
+    const previous = periodBounds(range, -1);
+    const currentDeliveries = deliveriesInWindow(completed, current.start, current.end);
+    const previousDeliveries = deliveriesInWindow(completed, previous.start, previous.end);
+    const currentGross = currentDeliveries.reduce((sum, d) => sum + (d.price ?? 0), 0);
+    const previousGross = previousDeliveries.reduce((sum, d) => sum + (d.price ?? 0), 0);
+    return {
+      heroValue: formatPrice(currentGross),
+      afterCommissionValue: formatPrice(totalRiderEarnings(currentDeliveries)),
+      trendPct: previousGross > 0 ? Math.round(((currentGross - previousGross) / previousGross) * 100) : null,
+      bars: lastSevenDaysBars(completed),
+      metrics: buildMetrics(currentDeliveries),
+      dateLabel: rangeDateLabel(range),
+    };
+  }, [completed, range]);
 
   return (
     <View style={styles.root}>
@@ -61,7 +175,7 @@ export function Earnings() {
         <Pressable onPress={() => setMenuOpen(true)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Menu">
           <MaterialIcons name="menu" size={24} color={COLORS.onSurface} />
         </Pressable>
-        <Text style={styles.brand}>FAMMO</Text>
+        <Text style={styles.brand}>FAMO</Text>
         <Pressable onPress={() => setNotificationsOpen(true)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Notifications">
           <MaterialIcons name="notifications" size={24} color={COLORS.onSurface} />
           <View style={styles.badge} />
@@ -75,13 +189,22 @@ export function Earnings() {
         <View style={styles.heroCard}>
           <Text style={styles.heroLabel}>Current Earnings</Text>
           <View style={styles.heroRow}>
-            <Text style={styles.heroValue}>₦2,450</Text>
-            <View style={styles.trendPill}>
-              <MaterialIcons name="trending-up" size={14} color={COLORS.positive} />
-              <Text style={styles.trendText}>+18%</Text>
-            </View>
+            <Text style={styles.heroValue}>{heroValue}</Text>
+            {trendPct !== null ? (
+              <View style={styles.trendPill}>
+                <MaterialIcons
+                  name={trendPct >= 0 ? 'trending-up' : 'trending-down'}
+                  size={14}
+                  color={trendPct >= 0 ? COLORS.positive : COLORS.error}
+                />
+                <Text style={[styles.trendText, trendPct < 0 && { color: COLORS.error }]}>
+                  {trendPct >= 0 ? '+' : ''}{trendPct}%
+                </Text>
+              </View>
+            ) : null}
           </View>
-          <Text style={styles.heroDate}>Today, Oct 24th</Text>
+          <Text style={styles.heroAfterCommission}>Earning after app's 10%: {afterCommissionValue}</Text>
+          <Text style={styles.heroDate}>{dateLabel}</Text>
         </View>
 
         {/* Segmented control */}
@@ -99,10 +222,10 @@ export function Earnings() {
           })}
         </View>
 
-        {/* Bar chart */}
+        {/* Bar chart — last 7 days */}
         <View style={styles.chart}>
           <View style={styles.bars}>
-            {BARS.map((bar, idx) => (
+            {bars.map((bar, idx) => (
               <View key={idx} style={styles.barColumn}>
                 <View
                   style={[
@@ -115,7 +238,7 @@ export function Earnings() {
             ))}
           </View>
           <View style={styles.barLabels}>
-            {BARS.map((bar, idx) => (
+            {bars.map((bar, idx) => (
               <Text
                 key={idx}
                 style={[styles.barLabel, bar.highlight && styles.barLabelActive]}>
@@ -127,7 +250,7 @@ export function Earnings() {
 
         {/* Metrics */}
         <View style={styles.metricsRow}>
-          {METRICS.map((m) => (
+          {metrics.map((m) => (
             <View key={m.label} style={styles.metricCard}>
               <Text style={styles.metricLabel}>{m.label}</Text>
               <Text style={styles.metricValue}>{m.value}</Text>
@@ -231,6 +354,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
   trendText: { fontSize: 12, fontWeight: '600', color: COLORS.positive },
+  heroAfterCommission: {
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primaryContainer,
+    opacity: 0.85,
+  },
   heroDate: { marginTop: 12, fontSize: 13, fontWeight: '500', color: COLORS.surfaceVariant, opacity: 0.6 },
   segment: {
     flexDirection: 'row',

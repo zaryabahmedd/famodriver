@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { deleteRiderAccount, verifyRiderPassword } from '@/hooks/rider-account-api';
+import { clearLocalAvatar, deleteRiderAccount, verifyRiderPassword } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -85,6 +85,7 @@ export function DeleteAccount({ onBack, onDeleted }: DeleteAccountProps) {
         setDeleting(false);
         return;
       }
+      await clearLocalAvatar();
       onDeleted();
     } catch {
       setError('Something went wrong. Please try again.');
@@ -129,7 +130,7 @@ export function DeleteAccount({ onBack, onDeleted }: DeleteAccountProps) {
           <View style={styles.warningCard}>
             <MaterialIcons name="warning-amber" size={24} color={COLORS.error} />
             <Text style={styles.warningText}>
-              Deleting your account is permanent. Your profile, documents and vehicle details will be removed and
+              Deleting your account is permanent. Your profile, documents and bike details will be removed and
               cannot be recovered. You will need to sign up again to use the app.
             </Text>
           </View>

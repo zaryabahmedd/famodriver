@@ -91,7 +91,7 @@ export function Reviews({ onBack }: ReviewsProps) {
         <Pressable onPress={onBack} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Back">
           <MaterialIcons name="arrow-back" size={24} color={COLORS.onSurfaceVariant} />
         </Pressable>
-        <Text style={styles.brand}>FAMMO</Text>
+        <Text style={styles.brand}>FAMO</Text>
         <Pressable style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Notifications">
           <MaterialIcons name="notifications" size={24} color={COLORS.onSurfaceVariant} />
         </Pressable>

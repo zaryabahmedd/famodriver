@@ -1,8 +1,15 @@
 import { Linking, Platform } from 'react-native';
 
+import type { PricingSettings } from './pricing';
+
 export const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
 
 export type LatLng = { lat: number; lng: number };
+
+/** Hard cap on the number of vertices kept for a drawn route polyline. Well
+ *  beyond what's visually useful on a map, but keeps us safely under Hermes's
+ *  per-array element ceiling (~196,608) for pathological API responses. */
+const MAX_ROUTE_POLYLINE_POINTS = 5000;
 
 /** Great-circle distance in meters between two coordinates. */
 export function haversineMeters(a: LatLng, b: LatLng): number {
@@ -31,16 +38,26 @@ export function formatPrice(price: number | null | undefined): string {
   return `₦${Math.round(Number(price)).toLocaleString()}`;
 }
 
-/** Delivery fare rate in Nigerian Naira (₦) per kilometre. */
-export const FARE_PER_KM = 180;
+/** Share of each delivery fare the app retains as its commission. */
+export const APP_COMMISSION_RATE = 0.1;
+
+/** Rider's net earning from a delivery fare after the app's 10% commission. */
+export function riderEarning(price: number | null | undefined): number {
+  if (price == null || Number.isNaN(Number(price))) return 0;
+  return Math.round(Number(price) * (1 - APP_COMMISSION_RATE));
+}
 
 /**
- * Compute the delivery fare in Naira from a distance in metres at the flat
- * ₦180/km rate. Returns null when the distance is unknown.
+ * Compute the delivery fare in Naira from a distance in metres using the
+ * admin-configured base price + per-kilometre rate (see `usePricingSettings`).
+ * Returns null when the distance or pricing is unknown.
  */
-export function calculateFare(meters: number | null | undefined): number | null {
-  if (meters == null || Number.isNaN(meters)) return null;
-  return Math.round((meters / 1000) * FARE_PER_KM);
+export function calculateFare(
+  meters: number | null | undefined,
+  pricing: PricingSettings | null | undefined,
+): number | null {
+  if (meters == null || Number.isNaN(meters) || pricing == null) return null;
+  return Math.round(pricing.basePrice + (meters / 1000) * pricing.perKmPrice);
 }
 
 /** Rough drive-time estimate (minutes) assuming ~22 km/h city average. */
@@ -168,9 +185,29 @@ export async function fetchRoute(
     const leg = route?.legs?.[0];
     if (!route || !leg) return null;
 
-    const overview = route.overview_polyline?.points;
-    const polyline =
-      typeof overview === 'string' ? decodePolyline(overview) : [origin, destination];
+    const detailedPoints: LatLng[] = [];
+    if (Array.isArray(leg.steps)) {
+      for (const s of leg.steps) {
+        if (typeof s.polyline?.points === 'string') {
+          for (const point of decodePolyline(s.polyline.points)) {
+            // Bail out before the route polyline grows large enough to blow
+            // past Hermes's per-array element ceiling (and to keep map
+            // rendering fast — a route line never needs sub-meter vertices).
+            if (detailedPoints.length >= MAX_ROUTE_POLYLINE_POINTS) break;
+            detailedPoints.push(point);
+          }
+        }
+      }
+    }
+
+    let polyline = detailedPoints;
+    if (polyline.length === 0) {
+      const overview = route.overview_polyline?.points;
+      polyline = typeof overview === 'string' ? decodePolyline(overview) : [origin, destination];
+      if (polyline.length > MAX_ROUTE_POLYLINE_POINTS) {
+        polyline = polyline.slice(0, MAX_ROUTE_POLYLINE_POINTS);
+      }
+    }
 
     const steps: NavStep[] = Array.isArray(leg.steps)
       ? leg.steps.map((s: any): NavStep => ({

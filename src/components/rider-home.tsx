@@ -1,7 +1,9 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,18 +13,27 @@ import { DeliveryRequest } from '@/components/delivery-request';
 import { InTransit } from '@/components/in-transit';
 import { JobHistory } from '@/components/job-history';
 import { Notifications } from '@/components/notifications';
+import { PaymentMethod } from '@/components/payment-method';
 import { PickupNavigation } from '@/components/pickup-navigation';
 import { Reviews } from '@/components/reviews';
 import { Sidebar } from '@/components/sidebar';
 import { VehicleInfo } from '@/components/vehicle-info';
 import { VerifyPackage } from '@/components/verify-package';
-import { Wallet } from '@/components/wallet';
+import { useRiderProfileData } from '@/hooks/rider-account-api';
+import {
+  appendCompletedDelivery,
+  CompletedDelivery,
+  useCompletedDeliveries,
+} from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
+import { formatKm, formatPrice, haversineMeters, riderEarning } from '@/hooks/maps';
 import { useAuth } from '@/hooks/use-auth';
 import { useRiderJobs } from '@/hooks/use-rider-jobs';
 import { useRiderLocation } from '@/hooks/use-rider-location';
+import { usePushNotifications } from '@/hooks/use-push-notifications';
 
-type JobPhase = 'pickup' | 'verify' | 'transit' | 'complete' | 'completed' | null;
+type JobPhase = 'pickup' | 'verify' | 'transit' | 'payment' | 'complete' | 'completed' | null;
+const JOB_PHASE_KEY = 'famo.jobPhase';
 
 const COLORS = {
   background: '#f8f8f6',
@@ -39,7 +50,7 @@ const COLORS = {
   outlineVariant: '#d0c6ab',
 };
 
-const PROFILE_URI =
+const FALLBACK_AVATAR =
   'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 const TIPS = [
@@ -49,12 +60,40 @@ const TIPS = [
   'Friendly service leads to higher ratings and better tips!',
 ];
 
-const STATS = [
-  { icon: 'schedule' as const, label: 'Working Time', value: '4h 20m' },
-  { icon: 'straighten' as const, label: 'Distance', value: '42.5 km' },
-  { icon: 'task-alt' as const, label: 'Orders', value: '12' },
-  { icon: 'payments' as const, label: 'Earnings', value: '₦3,450', highlight: true },
-];
+type Stat = {
+  icon: keyof typeof MaterialIcons.glyphMap;
+  label: string;
+  value: string;
+  highlight?: boolean;
+};
+
+/** Deliveries this rider completed since local midnight. */
+function deliveredToday(deliveries: CompletedDelivery[]): CompletedDelivery[] {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  return deliveries.filter((d) => new Date(d.completed_at).getTime() >= startOfToday.getTime());
+}
+
+/** "Today's Activity" stat cards built from this rider's real completed jobs.
+ *  There's no backend tracking of online/shift duration, so working time is
+ *  approximated as one hour per completed delivery (per product direction). */
+function buildTodayStats(deliveries: CompletedDelivery[]): Stat[] {
+  const todays = deliveredToday(deliveries);
+  const orders = todays.length;
+  const earnings = todays.reduce((sum, d) => sum + riderEarning(d.price), 0);
+  const distanceMeters = todays.reduce(
+    (sum, d) =>
+      sum + haversineMeters({ lat: d.pickup_lat, lng: d.pickup_lng }, { lat: d.dropoff_lat, lng: d.dropoff_lng }),
+    0,
+  );
+
+  return [
+    { icon: 'schedule', label: 'Working Time', value: `${orders}h 0m` },
+    { icon: 'straighten', label: 'Distance', value: formatKm(distanceMeters) },
+    { icon: 'task-alt', label: 'Orders', value: String(orders) },
+    { icon: 'payments', label: 'Earnings', value: formatPrice(earnings), highlight: true },
+  ];
+}
 
 function useTypewriter(tips: string[]) {
   const [text, setText] = useState('');
@@ -98,21 +137,26 @@ function useTypewriter(tips: string[]) {
 
 export function RiderHome() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { logout } = useAuth();
+  const { profile, avatar } = useRiderProfileData();
   const [riderId, setRiderId] = useState<string | null>(null);
   const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(null);
   const [jobPhase, setJobPhase] = useState<JobPhase>(null);
+  const [phaseRestored, setPhaseRestored] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(false);
-  const [walletOpen, setWalletOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const tipText = useTypewriter(TIPS);
+  const completedDeliveries = useCompletedDeliveries(riderId);
+  const todayStats = useMemo(() => buildTodayStats(completedDeliveries), [completedDeliveries]);
 
   const location = useRiderLocation({ riderId, activeDeliveryId });
   const online = location.online;
   const jobs = useRiderJobs({ riderId, online });
+  usePushNotifications(riderId);
 
   // Resolve the rider session id (custom auth -> stored id from login).
   useEffect(() => {
@@ -139,12 +183,36 @@ export function RiderHome() {
     setActiveDeliveryId(jobs.activeDelivery?.id ?? null);
   }, [jobs.activeDelivery?.id]);
 
-  // Enter / resume the job UI when an active delivery exists.
+  // Restore the last job phase from AsyncStorage on launch (runs once per riderId).
+  // This ensures verify/payment/complete screens survive a background/close + reopen.
+  // The auto-restore below is gated on phaseRestored so it never races with this.
   useEffect(() => {
+    if (!riderId) return;
+    void (async () => {
+      const saved = (await AsyncStorage.getItem(JOB_PHASE_KEY)) as JobPhase | null;
+      if (saved) setJobPhase(saved);
+      setPhaseRestored(true);
+    })();
+  }, [riderId]);
+
+  // Persist jobPhase changes so they survive app restarts.
+  useEffect(() => {
+    if (jobPhase === null) {
+      void AsyncStorage.removeItem(JOB_PHASE_KEY);
+    } else {
+      void AsyncStorage.setItem(JOB_PHASE_KEY, jobPhase);
+    }
+  }, [jobPhase]);
+
+  // Enter / resume the job UI when an active delivery exists.
+  // Only runs after the AsyncStorage restore has completed so we never
+  // overwrite a restored phase (e.g. 'verify') with the status-derived fallback.
+  useEffect(() => {
+    if (!phaseRestored) return;
     if (jobs.activeDelivery && jobPhase === null) {
       setJobPhase(jobs.activeDelivery.status === 'picked_up' ? 'transit' : 'pickup');
     }
-  }, [jobs.activeDelivery, jobPhase]);
+  }, [jobs.activeDelivery, jobPhase, phaseRestored]);
 
   // Phase 4: the customer cancelled after we accepted. Kill the job UI and
   // return to the Home (idle) screen, then inform the rider.
@@ -184,7 +252,7 @@ export function RiderHome() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => setMenuOpen(true)} accessibilityRole="button" accessibilityLabel="Open menu">
-          <Image source={{ uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
+          <Image source={{ uri: avatar || FALLBACK_AVATAR }} style={styles.avatar} contentFit="cover" />
         </Pressable>
 
         <View style={styles.toggle}>
@@ -238,7 +306,7 @@ export function RiderHome() {
 
         {/* Stats grid */}
         <View style={styles.grid}>
-          {STATS.map((s) => (
+          {todayStats.map((s) => (
             <View key={s.label} style={styles.statCard}>
               <View style={styles.statHeader}>
                 <MaterialIcons name={s.icon} size={20} color={COLORS.primary} />
@@ -302,7 +370,15 @@ export function RiderHome() {
         <InTransit
           delivery={jobs.activeDelivery}
           riderCoords={location.coords}
-          onArrived={() => setJobPhase('complete')}
+          onArrived={() => setJobPhase('payment')}
+          onBack={() => setJobPhase('transit')}
+        />
+      )}
+
+      {jobPhase === 'payment' && jobs.activeDelivery && (
+        <PaymentMethod
+          delivery={jobs.activeDelivery}
+          onContinue={() => setJobPhase('complete')}
           onBack={() => setJobPhase('transit')}
         />
       )}
@@ -311,8 +387,12 @@ export function RiderHome() {
         <CompleteDelivery
           delivery={jobs.activeDelivery}
           onConfirm={async () => {
+            const delivery = jobs.activeDelivery;
             const ok = await jobs.markDelivered();
-            if (ok) setJobPhase('completed');
+            if (ok) {
+              if (riderId && delivery) void appendCompletedDelivery(riderId, delivery);
+              setJobPhase('completed');
+            }
           }}
           onBack={() => setJobPhase('transit')}
         />
@@ -336,7 +416,6 @@ export function RiderHome() {
 
       {reviewsOpen && <Reviews onBack={() => setReviewsOpen(false)} />}
 
-      {walletOpen && <Wallet onBack={() => setWalletOpen(false)} />}
 
       {historyOpen && <JobHistory onBack={() => setHistoryOpen(false)} />}
 
@@ -347,9 +426,9 @@ export function RiderHome() {
           onClose={() => setMenuOpen(false)}
           onNavigate={(label) => {
             if (label === 'Reviews') setReviewsOpen(true);
-            else if (label === 'Wallet') setWalletOpen(true);
-            else if (label === 'Job History') setHistoryOpen(true);
-            else if (label === 'Vehicle Details') setVehicleOpen(true);
+            else if (label === 'Job History') router.push('/explore');
+            else if (label === 'Bike Details') setVehicleOpen(true);
+            else if (label === 'Help & Support') router.push('/help');
           }}
         />
       )}

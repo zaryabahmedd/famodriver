@@ -98,12 +98,12 @@ export async function getStoredRiderId(): Promise<string | null> {
   }
 }
 
-/** Wipe the entire rider session (token + id). Used on logout. */
+/** Wipe the rider session (token + id). Used on logout. Does NOT clear the
+ *  avatar — that persists across logins and is only removed on account deletion. */
 export async function clearRiderSession(): Promise<void> {
   try {
     await Promise.all([
       AsyncStorage.removeItem(RIDER_ID_KEY),
-      AsyncStorage.removeItem('famo.riderAvatar'),
       secureDelete(TOKEN_KEY),
       secureDelete(TOKEN_EXP_KEY),
     ]);

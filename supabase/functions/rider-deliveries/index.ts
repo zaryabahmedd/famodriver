@@ -15,7 +15,7 @@ const CORS = {
 };
 
 const DELIVERY_SELECT =
-  "id, user_id, rider_id, status, accepted_at, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, package_category, package_description, package_size, sender_name, sender_phone, recipient_name, recipient_phone, pickup_notes, dropoff_notes, special_instructions, users:user_id ( full_name, phone_number )";
+  "id, user_id, rider_id, status, accepted_at, pickup_address, pickup_lat, pickup_lng, dropoff_address, dropoff_lat, dropoff_lng, weight, price, created_at, package_category, package_description, package_size, sender_name, sender_phone, recipient_name, recipient_phone, pickup_notes, dropoff_notes, special_instructions, payment_method, payment_screenshot_url, users:user_id ( full_name, phone_number )";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,6 +32,8 @@ Deno.serve(async (req) => {
     action?: string;
     rider_id?: string;
     offer_id?: string;
+    riderId?: string;
+    offerId?: string;
   };
   try {
     payload = await req.json();
@@ -39,7 +41,9 @@ Deno.serve(async (req) => {
     return json({ error: "invalid_json" }, 400);
   }
 
-  const { action, rider_id, offer_id } = payload;
+  const { action } = payload;
+  const rider_id = payload.rider_id ?? payload.riderId;
+  const offer_id = payload.offer_id ?? payload.offerId;
   if (!rider_id) return json({ error: "missing_rider_id" }, 400);
 
   const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {

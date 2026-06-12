@@ -147,7 +147,7 @@ export function SignUpFlow({ onComplete }: SignUpFlowProps) {
   }
 
   if (step === 5) {
-    return <ApplicationSubmitted onContinue={next} onBack={back} />;
+    return <ApplicationSubmitted onContinue={showLoginScreen} onBack={back} />;
   }
 
   if (step === 6) {

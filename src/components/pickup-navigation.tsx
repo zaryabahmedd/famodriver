@@ -8,7 +8,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RouteMap } from '@/components/route-map';
 import { estimateMinutes, formatDuration, formatKm, haversineMeters, maneuverIcon, openTurnByTurn } from '@/hooks/maps';
 import type { Delivery } from '@/hooks/rider-api';
+import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
 import { useTurnByTurn } from '@/hooks/use-navigation';
+import { Chat } from './chat';
+import { ChatBadge } from './chat-badge';
 
 const COLORS = {
   mapBg: '#f1f3f4',
@@ -39,6 +42,17 @@ const CANCEL_GRACE_SECONDS = 60;
 
 export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onCancel }: PickupNavigationProps) {
   const insets = useSafeAreaInsets();
+  const [chatOpen, setChatOpen] = useState(false);
+  const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
+
+  const openChat = () => {
+    markRead();
+    setChatOpen(true);
+  };
+  const closeChat = () => {
+    markRead();
+    setChatOpen(false);
+  };
 
   // Countdown for the 1-minute cancellation grace period.
   const acceptedAt = delivery?.accepted_at ?? null;
@@ -57,6 +71,7 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onC
   const pickup = delivery ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng } : null;
   const pickupAddress = delivery?.pickup_address ?? 'Pickup location';
   const senderName = delivery?.sender_name ?? delivery?.users?.full_name ?? 'Customer';
+  const customerName = delivery?.users?.full_name ?? senderName;
   const senderPhone = delivery?.sender_phone ?? delivery?.users?.phone_number ?? null;
   const pickupNotes = delivery?.pickup_notes?.trim() || null;
   const toPickup = pickup && riderCoords ? haversineMeters(riderCoords, pickup) : null;
@@ -151,12 +166,13 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onC
               <MaterialIcons name="call" size={22} color={COLORS.onSurface} />
             </Pressable>
             <Pressable
-              onPress={() => senderPhone && Linking.openURL(`sms:${senderPhone}`)}
-              disabled={!senderPhone}
-              style={[styles.actionBtn, !senderPhone && styles.actionBtnDisabled]}
+              onPress={() => delivery?.id && openChat()}
+              disabled={!delivery?.id}
+              style={[styles.actionBtn, !delivery?.id && styles.actionBtnDisabled]}
               accessibilityRole="button"
               accessibilityLabel="Message">
               <MaterialIcons name="chat-bubble-outline" size={22} color={COLORS.onSurface} />
+              <ChatBadge count={unread} />
             </Pressable>
           </View>
         </View>
@@ -189,6 +205,10 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onC
           <Text style={styles.cancelLocked}>Cancellation window closed</Text>
         ) : null}
       </View>
+
+      {chatOpen ? (
+        <Chat deliveryId={delivery?.id ?? null} name={customerName} onBack={closeChat} />
+      ) : null}
     </View>
   );
 }

@@ -2,10 +2,14 @@
 // session token as `Authorization: Bearer <token>` to the Node backend (no
 // Supabase anon key). Document bytes still go to Supabase Storage via a signed
 // upload URL issued by the backend.
+import { DeviceEventEmitter } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { callBackend } from './backend-client';
 import { getRiderToken } from './rider-session';
 import { supabase } from './supabase-client';
+
+export const PROFILE_UPDATED_EVENT = 'famo.profileUpdated';
 
 export type RiderProfile = {
   id: string;
@@ -20,6 +24,7 @@ export type RiderProfile = {
   vehicle_model: string | null;
   vehicle_year: string | null;
   vehicle_plate: string | null;
+  vehicle_battery_capacity: string | null;
   payout_bank: string | null;
   payout_account_number: string | null;
   payout_bvn: string | null;
@@ -40,6 +45,7 @@ export type ProfileUpdate = Partial<
     | 'vehicle_model'
     | 'vehicle_year'
     | 'vehicle_plate'
+    | 'vehicle_battery_capacity'
     | 'payout_bank'
     | 'payout_account_number'
     | 'payout_bvn'
@@ -80,6 +86,7 @@ export async function updateRiderProfile(profile: ProfileUpdate): Promise<RiderP
     console.warn('[rider-account] updateRiderProfile failed', error?.message ?? data?.error);
     return null;
   }
+  DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
   return (data.rider as RiderProfile) ?? null;
 }
 
@@ -87,11 +94,11 @@ export async function updateRiderProfile(profile: ProfileUpdate): Promise<RiderP
 export async function submitRiderApplication(): Promise<boolean> {
   const token = await getRiderToken();
   if (!token) return false;
-  const { data, error } = await callBackend(
-    'rider-profile',
-    { action: 'submit_application' },
-    { token },
-  );
+  const { data, error } = await supabase.functions.invoke('rider-submit-application', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: {},
+  });
   if (error || !data?.ok) {
     console.warn('[rider-account] submitRiderApplication failed', error?.message ?? data?.error);
     return false;
@@ -239,6 +246,7 @@ export async function getLocalAvatar(): Promise<string | null> {
 export async function saveLocalAvatar(dataUri: string): Promise<void> {
   try {
     await AsyncStorage.setItem(AVATAR_KEY, dataUri);
+    DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
   } catch {
     // ignore storage errors
   }
@@ -248,7 +256,42 @@ export async function saveLocalAvatar(dataUri: string): Promise<void> {
 export async function clearLocalAvatar(): Promise<void> {
   try {
     await AsyncStorage.removeItem(AVATAR_KEY);
+    DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
   } catch {
     // ignore storage errors
   }
 }
+
+import { useEffect, useState } from 'react';
+
+const PROFILE_CACHE_KEY = 'famo.profileCache';
+
+/** Custom hook to listen to profile and avatar changes instantly.
+ *  Shows the last-known profile from local cache immediately on mount so
+ *  the rider's name is never blank while the backend fetch is in flight. */
+export function useRiderProfileData() {
+  const [profile, setProfile] = useState<RiderProfile | null>(null);
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  const loadData = async () => {
+    const [p, a] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
+    if (p) {
+      setProfile(p);
+      void AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
+    }
+    setAvatar(a);
+  };
+
+  useEffect(() => {
+    // Show cached profile instantly while the network fetch is in-flight.
+    void AsyncStorage.getItem(PROFILE_CACHE_KEY).then((cached) => {
+      if (cached) setProfile(JSON.parse(cached) as RiderProfile);
+    });
+    void loadData();
+    const sub = DeviceEventEmitter.addListener(PROFILE_UPDATED_EVENT, () => void loadData());
+    return () => sub.remove();
+  }, []);
+
+  return { profile, avatar };
+}
+
