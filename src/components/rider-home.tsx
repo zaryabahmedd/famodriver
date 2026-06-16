@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import { useNavigation, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompleteDelivery } from '@/components/complete-delivery';
@@ -26,7 +26,9 @@ import {
 } from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
 import { formatKm, formatPrice, haversineMeters, riderEarning } from '@/hooks/maps';
+import { useActiveOrders } from '@/hooks/use-active-orders';
 import { useAuth } from '@/hooks/use-auth';
+import { useBackHandler } from '@/hooks/use-back-handler';
 import { useRiderJobs } from '@/hooks/use-rider-jobs';
 import { useRiderLocation } from '@/hooks/use-rider-location';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
@@ -152,7 +154,46 @@ export function RiderHome() {
   const location = useRiderLocation({ riderId, activeDeliveryId });
   const online = location.online;
   const jobs = useRiderJobs({ riderId, online });
+  const { count: activeOrdersCount, refresh: refreshActiveOrders } = useActiveOrders(riderId);
   usePushNotifications(riderId);
+
+  // Refresh the assigned-orders count promptly when this rider's active job
+  // changes (accept adds one, complete/cancel removes one); the interval poll
+  // in useActiveOrders catches assignments that happen server-side.
+  useEffect(() => {
+    refreshActiveOrders();
+  }, [jobs.activeDelivery?.id, refreshActiveOrders]);
+
+  // Android hardware back. Close the topmost overlay first; while a job or an
+  // incoming offer covers the screen, consume the press so the rider can't
+  // accidentally back out mid-delivery (those screens have their own
+  // on-screen controls). At the home root, confirm before exiting the app.
+  useBackHandler(() => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return true;
+    }
+    if (notificationsOpen) {
+      setNotificationsOpen(false);
+      return true;
+    }
+    if (reviewsOpen) {
+      setReviewsOpen(false);
+      return true;
+    }
+    if (vehicleOpen) {
+      setVehicleOpen(false);
+      return true;
+    }
+    if (jobPhase || jobs.pendingOffer) {
+      return true;
+    }
+    Alert.alert('Exit app', 'Are you sure you want to exit the application?', [
+      { text: 'No', style: 'cancel' },
+      { text: 'Yes', style: 'destructive', onPress: () => BackHandler.exitApp() },
+    ]);
+    return true;
+  });
 
   // Tapping the Home tab (even while it's already the active tab) should bring
   // the rider back to the home screen by dismissing any full-screen overlay
@@ -307,6 +348,22 @@ export function RiderHome() {
               ? 'You are currently online and ready for new jobs.'
               : 'You are offline. Go online to receive new jobs.'}
           </Text>
+        </View>
+
+        {/* Live count of orders currently assigned to this rider */}
+        <View style={styles.activeCard}>
+          <View style={styles.activeIcon}>
+            <MaterialIcons name="moped" size={24} color={COLORS.onPrimaryContainer} />
+          </View>
+          <View style={styles.activeTextWrap}>
+            <Text style={styles.activeLabel}>Active Orders</Text>
+            <Text style={styles.activeSub}>
+              {activeOrdersCount > 0
+                ? `${activeOrdersCount} ${activeOrdersCount === 1 ? 'order' : 'orders'} assigned to you right now`
+                : 'No active orders right now'}
+            </Text>
+          </View>
+          <Text style={styles.activeCount}>{activeOrdersCount}</Text>
         </View>
 
         {/* Pro tips */}
@@ -517,6 +574,28 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  activeCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+  },
+  activeIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primaryContainer,
+  },
+  activeTextWrap: { flex: 1, gap: 2 },
+  activeLabel: { fontSize: 16, fontWeight: '700', color: COLORS.onSurface },
+  activeSub: { fontSize: 13, lineHeight: 18, color: COLORS.onSurfaceVariant },
+  activeCount: { fontSize: 32, fontWeight: '800', color: COLORS.onSurface },
   hero: { alignItems: 'center', gap: 8 },
   heroTitle: {
     fontSize: 22,

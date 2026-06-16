@@ -7,8 +7,7 @@ import {
     TabTrigger,
     TabTriggerSlotProps,
 } from 'expo-router/ui';
-import { useEffect } from 'react';
-import { Alert, BackHandler, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const COLORS = {
@@ -33,21 +32,6 @@ const ICONS: Record<TabName, keyof typeof MaterialIcons.glyphMap> = {
 };
 
 export default function AppTabs() {
-  useEffect(() => {
-    if (Platform.OS !== 'android') return;
-
-    const onBackPress = () => {
-      Alert.alert('Warning!', 'Do you really want to close the app?', [
-        { text: 'No', style: 'cancel' },
-        { text: 'Yes', style: 'destructive', onPress: () => BackHandler.exitApp() },
-      ]);
-      return true;
-    };
-
-    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-    return () => subscription.remove();
-  }, []);
-
   return (
     <Tabs>
       <TabSlot style={styles.slot} />

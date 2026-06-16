@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatPrice, riderEarning } from '@/hooks/maps';
 import { CompletedDelivery, useCompletedDeliveries } from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
+import { useBackHandler } from '@/hooks/use-back-handler';
 
 import { Notifications } from './notifications';
 import { Sidebar } from './sidebar';
@@ -149,6 +150,20 @@ export function Earnings() {
 
   const completed = useCompletedDeliveries(riderId);
 
+  // Android back: close the menu / notifications, then fall back to Home.
+  useBackHandler(() => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return true;
+    }
+    if (notificationsOpen) {
+      setNotificationsOpen(false);
+      return true;
+    }
+    router.navigate('/');
+    return true;
+  });
+
   const { heroValue, afterCommissionValue, trendPct, bars, metrics, dateLabel } = useMemo(() => {
     const current = periodBounds(range, 0);
     const previous = periodBounds(range, -1);
@@ -203,7 +218,7 @@ export function Earnings() {
               </View>
             ) : null}
           </View>
-          <Text style={styles.heroAfterCommission}>Earning after app's 10%: {afterCommissionValue}</Text>
+          <Text style={styles.heroAfterCommission}>Earning after app&apos;s 10%: {afterCommissionValue}</Text>
           <Text style={styles.heroDate}>{dateLabel}</Text>
         </View>
 

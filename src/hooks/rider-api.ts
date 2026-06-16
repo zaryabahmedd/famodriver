@@ -144,6 +144,32 @@ export async function fetchActiveDelivery(): Promise<Delivery | null> {
   return (data?.delivery as Delivery | null) ?? null;
 }
 
+/**
+ * Count every order currently assigned to this rider (status accepted or
+ * picked_up). Unlike fetchActiveDelivery (which returns just one job to work),
+ * this reflects the true number of live jobs so the dashboard can display it.
+ * Returns 0 on any error so the UI degrades gracefully.
+ */
+export async function fetchActiveDeliveriesCount(): Promise<number> {
+  const token = await getRiderToken();
+  if (!token) return 0;
+  const riderId = await getStoredRiderId();
+  const { data, error } = await callBackend<{ ok: boolean; count: number; ids: string[] }>(
+    'rider-deliveries',
+    {
+      action: 'active_deliveries',
+      rider_id: riderId ?? undefined,
+      riderId: riderId ?? undefined,
+    },
+    { token },
+  );
+  if (error) {
+    console.warn('[rider-api] fetchActiveDeliveriesCount failed', error.message);
+    return 0;
+  }
+  return typeof data?.count === 'number' ? data.count : 0;
+}
+
 export type RespondResult = {
   ok: boolean;
   action?: 'accept' | 'decline';

@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBackHandler } from '@/hooks/use-back-handler';
 import { Sidebar } from './sidebar';
 import { sidebarNavigate } from './sidebar-nav';
 
@@ -78,6 +79,16 @@ export function Help() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // Android back: close the menu, then fall back to Home.
+  useBackHandler(() => {
+    if (menuOpen) {
+      setMenuOpen(false);
+      return true;
+    }
+    router.navigate('/');
+    return true;
+  });
 
   const callSupport = () => {
     Linking.openURL(`tel:${SUPPORT_PHONE}`).catch(() => {});

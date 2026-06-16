@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 
 import { DeleteAccount } from '@/components/delete-account';
 import { Documents } from '@/components/documents';
@@ -11,6 +11,7 @@ import { Settings } from '@/components/settings';
 import { Sidebar } from '@/components/sidebar';
 import { VehicleInfo } from '@/components/vehicle-info';
 import { useAuth } from '@/hooks/use-auth';
+import { useBackHandler } from '@/hooks/use-back-handler';
 
 type Screen =
   | 'vehicle'
@@ -29,6 +30,32 @@ export default function ProfileScreen() {
   const [profileVersion, setProfileVersion] = useState(0);
 
   const close = () => setActive(null);
+
+  // Reset to the root profile screen whenever this tab loses focus, so
+  // switching tabs and coming back never lands on a stale sub-screen
+  // (Bike, Documents, Settings, etc.).
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        setActive(null);
+        setMenuOpen(false);
+      };
+    }, []),
+  );
+
+  // Android back: close the open sub-screen, then the menu, then fall back to Home.
+  useBackHandler(() => {
+    if (active) {
+      setActive(null);
+      return true;
+    }
+    if (menuOpen) {
+      setMenuOpen(false);
+      return true;
+    }
+    router.navigate('/');
+    return true;
+  });
 
   const handleMenuSelect = (label: string) => {
     if (label === 'Bike') setActive('vehicle');

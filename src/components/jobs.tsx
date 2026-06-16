@@ -16,6 +16,7 @@ import {
 import { CompletedDelivery, useCompletedDeliveries } from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
 import { useRiderProfileData } from '@/hooks/rider-account-api';
+import { useBackHandler } from '@/hooks/use-back-handler';
 import { Sidebar } from './sidebar';
 import { sidebarNavigate } from './sidebar-nav';
 
@@ -294,6 +295,20 @@ export function Jobs() {
       };
     }, []),
   );
+
+  // Android back: close the order detail, then the menu, then fall back to Home.
+  useBackHandler(() => {
+    if (selected) {
+      setSelected(null);
+      return true;
+    }
+    if (menuOpen) {
+      setMenuOpen(false);
+      return true;
+    }
+    router.navigate('/');
+    return true;
+  });
 
   if (selected) {
     return (

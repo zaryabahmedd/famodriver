@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ForgotPassword } from '@/components/forgot-password';
 import { PrivacyPolicy } from '@/components/privacy-policy';
 import { useRiderProfileData } from '@/hooks/rider-account-api';
+import { useBackHandler } from '@/hooks/use-back-handler';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -34,6 +35,24 @@ export function Settings({ onBack, onLogout }: SettingsProps) {
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [changePassword, setChangePassword] = useState(false);
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+
+  // Android back: close an open sub-view / modal first, otherwise leave Settings.
+  useBackHandler(() => {
+    if (showPrivacyPolicy) {
+      setShowPrivacyPolicy(false);
+      return true;
+    }
+    if (changePassword) {
+      setChangePassword(false);
+      return true;
+    }
+    if (confirmLogout) {
+      setConfirmLogout(false);
+      return true;
+    }
+    onBack?.();
+    return true;
+  });
 
   if (showPrivacyPolicy) {
     return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} />;
