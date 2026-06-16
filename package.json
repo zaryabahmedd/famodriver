@@ -50,5 +50,10 @@
     "web": "expo start --web",
     "lint": "expo lint"
   },
+  "overrides": {
+    "@emnapi/core": "1.11.1",
+    "@emnapi/runtime": "1.11.1",
+    "@emnapi/wasi-threads": "1.2.2"
+  },
   "private": true
 }
