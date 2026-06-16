@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -25,9 +24,6 @@ const COLORS = {
   primaryContainer: '#fbd103',
   outlineVariant: '#d0c6ab',
 };
-
-const AVATAR_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 type PickupNavigationProps = {
   onArrived: () => void;
@@ -144,7 +140,9 @@ export function PickupNavigation({ onArrived, onBack, delivery, riderCoords, onC
 
         <View style={styles.customerRow}>
           <View style={styles.customerInfo}>
-            <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <MaterialIcons name="person" size={34} color={COLORS.onSurfaceVariant} />
+            </View>
             <View style={styles.customerText}>
               <Text style={styles.customerName}>{senderName}</Text>
               <Text style={styles.customerMeta} numberOfLines={1}>
@@ -318,6 +316,11 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     borderWidth: 2,
     borderColor: COLORS.primaryContainer,
+  },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   customerText: { flex: 1 },
   customerName: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: COLORS.onSurface },

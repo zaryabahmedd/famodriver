@@ -33,6 +33,7 @@ export type RiderProfile = {
   license_back_path: string | null;
   selfie_path: string | null;
   selfie_with_license_path: string | null;
+  avatar_url: string | null;
 };
 
 export type ProfileUpdate = Partial<
@@ -49,6 +50,7 @@ export type ProfileUpdate = Partial<
     | 'payout_bank'
     | 'payout_account_number'
     | 'payout_bvn'
+    | 'avatar_url'
   >
 >;
 
@@ -60,6 +62,7 @@ export type DocType =
   | 'selfie_with_license';
 
 const DOC_BUCKET = 'rider-documents';
+const AVATAR_BUCKET = 'avatars';
 
 /** Read the current rider's own profile (never password/verification_code). */
 export async function getRiderProfile(): Promise<RiderProfile | null> {
@@ -174,10 +177,76 @@ export async function uploadRiderDocument(
     .from(DOC_BUCKET)
     .uploadToSignedUrl(data.path as string, data.token as string, bytes, {
       contentType: resolvedType,
+      // Overwrite any existing file at this path. Without this, storage-js sends
+      // `x-upsert: false` and re-uploading to the same path fails as a duplicate.
+      upsert: true,
     });
   if (upErr) return { ok: false, error: upErr.message };
 
   return { ok: true, path: data.path as string };
+}
+
+export type AvatarUploadResult = { ok: boolean; url?: string; error?: string };
+
+/**
+ * Upload a new profile photo to the public 'avatars' bucket and return its
+ * public URL. This only writes the file to storage — it does NOT update the
+ * rider's profile row or any shared/global state. Callers should pass the
+ * returned url as `avatar_url` to `updateRiderProfile` to persist it.
+ */
+export async function uploadRiderAvatar(
+  fileUri: string,
+  contentType?: string,
+  base64?: string | null,
+): Promise<AvatarUploadResult> {
+  const token = await getRiderToken();
+  if (!token) return { ok: false, error: 'no_session' };
+
+  if (!base64) return { ok: false, error: 'missing_image_data' };
+
+  const ext = (fileUri.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+
+  const { data, error } = await callBackend(
+    'rider-profile',
+    { action: 'sign_avatar_upload', ext },
+    { token },
+  );
+  if (error || !data?.ok) {
+    return { ok: false, error: error?.message ?? data?.error ?? 'sign_failed' };
+  }
+  if (!data?.path || !data?.token) {
+    return { ok: false, error: 'sign_missing_token' };
+  }
+  // Fall back to building the public URL ourselves if the backend didn't send
+  // one (older backend builds may omit `publicUrl`).
+  const publicUrl =
+    (data.publicUrl as string | undefined) ??
+    supabase.storage.from(AVATAR_BUCKET).getPublicUrl(data.path as string).data.publicUrl;
+  if (!publicUrl) {
+    return { ok: false, error: 'sign_missing_url' };
+  }
+
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(base64);
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? 'decode_failed' };
+  }
+
+  const resolvedType = contentType ?? `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+  const { error: upErr } = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .uploadToSignedUrl(data.path as string, data.token as string, bytes, {
+      contentType: resolvedType,
+      // The avatar path is fixed per rider, so every change after the first is
+      // an overwrite. Without upsert, storage-js sends `x-upsert: false` and the
+      // upload fails with "The resource already exists".
+      upsert: true,
+    });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  // Bust CDN/client image caches since the path is deterministic per rider.
+  return { ok: true, url: `${publicUrl}?v=${Date.now()}` };
 }
 
 /**
@@ -226,42 +295,6 @@ export async function verifyRiderPassword(email: string, password: string): Prom
   return data.token as string;
 }
 
-// --- Profile avatar (device-local) -----------------------------------------
-// The rider backend has no avatar column yet, so the profile photo is persisted
-// on this device via AsyncStorage as a base64 data URI. It survives app
-// restarts and is cleared on logout. Swap to a backend upload once the riders
-// table gains an avatar_path column + signed-upload endpoint.
-const AVATAR_KEY = 'famo.riderAvatar';
-
-/** Read the locally-saved profile photo (data URI), or null if none set. */
-export async function getLocalAvatar(): Promise<string | null> {
-  try {
-    return await AsyncStorage.getItem(AVATAR_KEY);
-  } catch {
-    return null;
-  }
-}
-
-/** Persist the profile photo on this device as a base64 data URI. */
-export async function saveLocalAvatar(dataUri: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(AVATAR_KEY, dataUri);
-    DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
-  } catch {
-    // ignore storage errors
-  }
-}
-
-/** Remove the locally-saved profile photo (called on logout). */
-export async function clearLocalAvatar(): Promise<void> {
-  try {
-    await AsyncStorage.removeItem(AVATAR_KEY);
-    DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
-  } catch {
-    // ignore storage errors
-  }
-}
-
 import { useEffect, useState } from 'react';
 
 const PROFILE_CACHE_KEY = 'famo.profileCache';
@@ -271,15 +304,13 @@ const PROFILE_CACHE_KEY = 'famo.profileCache';
  *  the rider's name is never blank while the backend fetch is in flight. */
 export function useRiderProfileData() {
   const [profile, setProfile] = useState<RiderProfile | null>(null);
-  const [avatar, setAvatar] = useState<string | null>(null);
 
   const loadData = async () => {
-    const [p, a] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
+    const p = await getRiderProfile();
     if (p) {
       setProfile(p);
       void AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
     }
-    setAvatar(a);
   };
 
   useEffect(() => {
@@ -292,6 +323,6 @@ export function useRiderProfileData() {
     return () => sub.remove();
   }, []);
 
-  return { profile, avatar };
+  return { profile, avatar: profile?.avatar_url ?? null };
 }
 

@@ -34,6 +34,7 @@ type PaymentMethodProps = {
 export function PaymentMethod({ onContinue, onBack, delivery }: PaymentMethodProps) {
   const insets = useSafeAreaInsets();
   const [chatOpen, setChatOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
   const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
   const customerName =
     delivery?.users?.full_name ?? delivery?.recipient_name ?? delivery?.sender_name ?? 'Customer';
@@ -88,19 +89,26 @@ export function PaymentMethod({ onContinue, onBack, delivery }: PaymentMethodPro
             </Text>
           </View>
         ) : isBankTransfer ? (
-          <View style={[styles.card, styles.cardBank]}>
+          <View style={styles.bankBlock}>
             <View style={[styles.cardIcon, styles.cardIconBank]}>
               <MaterialIcons name="account-balance" size={28} color="#000000" />
             </View>
             <Text style={styles.cardTitle}>Payment has been selected as Bank Account</Text>
-            <Text style={styles.cardHint}>
-              The user paid by bank transfer and has attached a screenshot of the transaction below — no cash is required from them at drop-off.
-            </Text>
 
             {screenshot ? (
               <View style={styles.screenshotWrap}>
                 <Text style={styles.screenshotLabel}>Screenshot of the transaction</Text>
-                <Image source={{ uri: screenshot }} style={styles.screenshot} contentFit="cover" />
+                <Pressable
+                  onPress={() => setViewerOpen(true)}
+                  style={styles.screenshotFrame}
+                  accessibilityRole="button"
+                  accessibilityLabel="View full transaction screenshot">
+                  <Image source={{ uri: screenshot }} style={styles.screenshot} contentFit="contain" />
+                  <View style={styles.screenshotZoom}>
+                    <MaterialIcons name="zoom-out-map" size={16} color="#ffffff" />
+                  </View>
+                </Pressable>
+                <Text style={styles.screenshotTapHint}>Tap to view full screenshot</Text>
               </View>
             ) : (
               <View style={styles.noScreenshot}>
@@ -135,6 +143,19 @@ export function PaymentMethod({ onContinue, onBack, delivery }: PaymentMethodPro
 
       {chatOpen ? (
         <Chat deliveryId={delivery?.id ?? null} name={customerName} onBack={closeChat} />
+      ) : null}
+
+      {viewerOpen && screenshot ? (
+        <View style={[styles.viewerOverlay, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+          <Pressable
+            onPress={() => setViewerOpen(false)}
+            style={styles.viewerClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close screenshot">
+            <MaterialIcons name="close" size={26} color="#ffffff" />
+          </Pressable>
+          <Image source={{ uri: screenshot }} style={styles.viewerImage} contentFit="contain" />
+        </View>
       ) : null}
     </View>
   );
@@ -204,6 +225,7 @@ const styles = StyleSheet.create({
   },
   cardCod: { borderColor: COLORS.primaryContainer, backgroundColor: 'rgba(251,209,3,0.06)' },
   cardBank: { borderColor: COLORS.positive, backgroundColor: COLORS.positiveContainer },
+  bankBlock: { gap: 12 },
   cardUnknown: {},
   cardIcon: {
     width: 56,
@@ -225,11 +247,56 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: 'uppercase',
   },
+  screenshotFrame: {
+    width: '100%',
+    aspectRatio: 9 / 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: COLORS.gray100,
+    borderWidth: 1,
+    borderColor: COLORS.gray100,
+  },
   screenshot: {
     width: '100%',
-    aspectRatio: 4 / 5,
+    height: '100%',
+  },
+  screenshotZoom: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    backgroundColor: COLORS.gray100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  screenshotTapHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.gray400,
+    textAlign: 'center',
+  },
+  viewerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    ...(Platform.OS === 'web' ? ({ position: 'fixed' } as object) : null),
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2000,
+  },
+  viewerImage: { width: '100%', height: '100%' },
+  viewerClose: {
+    position: 'absolute',
+    top: 48,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    zIndex: 10,
   },
   noScreenshot: {
     flexDirection: 'row',

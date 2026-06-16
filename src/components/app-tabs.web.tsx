@@ -24,7 +24,7 @@ type TabName = 'home' | 'explore' | 'earnings' | 'help' | 'profile';
 
 const ICONS: Record<TabName, keyof typeof MaterialIcons.glyphMap> = {
   home: 'home',
-  explore: 'directions-bike',
+  explore: 'moped',
   earnings: 'account-balance-wallet',
   help: 'help-outline',
   profile: 'person',

@@ -19,10 +19,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
-    getLocalAvatar,
     getRiderProfile,
-    saveLocalAvatar,
     updateRiderProfile,
+    uploadRiderAvatar,
 } from '@/hooks/rider-account-api';
 
 const COLORS = {
@@ -36,9 +35,6 @@ const COLORS = {
   outline: '#7f775f',
   outlineVariant: '#d0c6ab',
 };
-
-const PROFILE_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 type FieldDef = {
   key: 'full_name' | 'email' | 'phone_number';
@@ -69,14 +65,20 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
     email: '',
     phone_number: '',
   });
-  // avatar holds a base64 data URI (newly picked or previously saved) or null.
+  // The rider's currently-saved avatar URL (from their profile), or null.
   const [avatar, setAvatar] = useState<string | null>(null);
+  // A newly picked photo, staged locally until "Save changes" is tapped.
+  const [pickedPhoto, setPickedPhoto] = useState<{
+    uri: string;
+    base64: string;
+    mimeType: string;
+  } | null>(null);
 
-  // Load the rider's real profile + any locally-saved photo.
+  // Load the rider's real profile.
   useEffect(() => {
     let active = true;
     (async () => {
-      const [profile, savedAvatar] = await Promise.all([getRiderProfile(), getLocalAvatar()]);
+      const profile = await getRiderProfile();
       if (!active) return;
       if (profile) {
         setValues({
@@ -84,8 +86,8 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
           email: profile.email ?? '',
           phone_number: profile.phone_number ?? '',
         });
+        setAvatar(profile.avatar_url ?? null);
       }
-      if (savedAvatar) setAvatar(savedAvatar);
       setLoading(false);
     })();
     return () => {
@@ -109,10 +111,13 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
       quality: 0.6,
       base64: true,
     });
-    if (!result.canceled && result.assets?.[0]?.base64) {
-      const asset = result.assets[0];
-      const mime = asset.mimeType ?? 'image/jpeg';
-      setAvatar(`data:${mime};base64,${asset.base64}`);
+    const asset = !result.canceled ? result.assets?.[0] : undefined;
+    if (asset?.base64) {
+      setPickedPhoto({
+        uri: asset.uri,
+        base64: asset.base64,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      });
     }
   };
 
@@ -125,25 +130,41 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
     }
     setSaving(true);
     try {
+      let avatarUrl: string | undefined;
+      if (pickedPhoto) {
+        const result = await uploadRiderAvatar(
+          pickedPhoto.uri,
+          pickedPhoto.mimeType,
+          pickedPhoto.base64,
+        );
+        if (!result.ok || !result.url) {
+          console.warn('[edit-profile] avatar upload failed', result.error);
+          Alert.alert(
+            'Could not upload photo',
+            result.error ? `Please try again.\n\n(${result.error})` : 'Please try again.',
+          );
+          return;
+        }
+        avatarUrl = result.url;
+      }
       const updated = await updateRiderProfile({
         full_name: fullName,
         phone_number: values.phone_number.trim() || null,
+        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
       });
       if (!updated) {
         Alert.alert('Could not save', 'Your changes were not saved. Please try again.');
         return;
       }
-      // Photo is persisted on-device (no backend avatar column yet).
-      if (avatar && avatar.startsWith('data:')) {
-        await saveLocalAvatar(avatar);
-      }
+      setAvatar(updated.avatar_url ?? null);
+      setPickedPhoto(null);
       onSave?.();
     } finally {
       setSaving(false);
     }
   };
 
-  const avatarSource = avatar ? { uri: avatar } : { uri: PROFILE_URI };
+  const photoUri = pickedPhoto ? pickedPhoto.uri : avatar;
 
   return (
     <View style={styles.root}>
@@ -170,7 +191,13 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
           showsVerticalScrollIndicator={false}>
           <View style={styles.avatarSection}>
             <View style={styles.avatarRing}>
-              <Image source={avatarSource} style={styles.avatar} contentFit="cover" />
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.avatar} contentFit="cover" />
+              ) : (
+                <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                  <MaterialIcons name="person" size={52} color={COLORS.outline} />
+                </View>
+              )}
               <Pressable
                 onPress={pickPhoto}
                 style={styles.cameraBtn}
@@ -180,7 +207,9 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
               </Pressable>
             </View>
             <Pressable onPress={pickPhoto} accessibilityRole="button">
-              <Text style={styles.changePhoto}>Change photo</Text>
+              <Text style={styles.changePhoto}>
+                {pickedPhoto ? 'Photo selected · tap to change' : 'Change photo'}
+              </Text>
             </Pressable>
           </View>
 
@@ -271,6 +300,11 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   avatar: { width: '100%', height: '100%', borderRadius: 56 },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   cameraBtn: {
     position: 'absolute',
     bottom: 0,

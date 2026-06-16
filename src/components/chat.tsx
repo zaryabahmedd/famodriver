@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { useRef, useState } from 'react';
 import {
@@ -29,9 +28,6 @@ const COLORS = {
   outline: '#7f775f',
   outlineVariant: '#d0c6ab',
 };
-
-const AVATAR_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0ujS-tqqpzwjlG_xyAfylS0Yyk_zz0sK0kL6VegDbOI3XKFds6mk57O17CBaGpgTrzNt5CMxP_qATmN2xUx31G2o6qrSrP3Joomsf15Zbvth4XYeHv-MUIvtOUtyNIQZmAxF4GXURmiZLfcfWCtG4XvMb9BIFZ7zlfDtqtEM-LJheTp0_C6K_zZb8B5fmdPgDpJHoQ8jXwObzByov9C4C96cy90E8nXrvgJ-TMYIESe6sjC_1DIkkxWmOZo';
 
 const QUICK_REPLIES = ['On my way!', "I'm outside", 'Running 5 min late', 'Where exactly?'];
 
@@ -72,7 +68,9 @@ export function Chat({ deliveryId, name = 'Customer', onBack, onCall }: ChatProp
         </Pressable>
         <View style={styles.headerInfo}>
           <View style={styles.avatarWrap}>
-            <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <MaterialIcons name="person" size={24} color={COLORS.outline} />
+            </View>
           </View>
           <View>
             <Text style={styles.headerName}>{name}</Text>
@@ -178,6 +176,11 @@ const styles = StyleSheet.create({
   headerInfo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatarWrap: { position: 'relative' },
   avatar: { width: 40, height: 40, borderRadius: 20 },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerName: { fontSize: 16, fontWeight: '700', color: COLORS.onSurface },
   headerStatus: { fontSize: 12, color: COLORS.onSurfaceVariant },
   messagesScroll: { flex: 1 },

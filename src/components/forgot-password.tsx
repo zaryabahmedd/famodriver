@@ -38,13 +38,29 @@ type Step = 'email' | 'code' | 'password' | 'done';
 type ForgotPasswordProps = {
   onBack?: () => void;
   onDone?: () => void;
+  /** Pre-fill the email (e.g. the signed-in rider changing their password). */
+  initialEmail?: string;
+  /** When true, the email is fixed and shown read-only (no editing). */
+  lockEmail?: boolean;
+  /**
+   * 'forgot' (default) is the logged-out reset flow. 'change' tweaks the copy
+   * for a signed-in rider changing their password from Settings.
+   */
+  mode?: 'forgot' | 'change';
 };
 
-export function ForgotPassword({ onBack, onDone }: ForgotPasswordProps) {
+export function ForgotPassword({
+  onBack,
+  onDone,
+  initialEmail,
+  lockEmail = false,
+  mode = 'forgot',
+}: ForgotPasswordProps) {
   const insets = useSafeAreaInsets();
+  const isChange = mode === 'change';
   const [step, setStep] = useState<Step>('email');
 
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail?.trim().toLowerCase() ?? '');
   const [digits, setDigits] = useState<string[]>(() => Array(CODE_LENGTH).fill(''));
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [password, setPassword] = useState('');
@@ -220,15 +236,17 @@ export function ForgotPassword({ onBack, onDone }: ForgotPasswordProps) {
                 <View style={styles.lockIcon}>
                   <MaterialIcons name="lock-reset" size={36} color={COLORS.onPrimaryContainer} />
                 </View>
-                <Text style={styles.title}>Forgot password?</Text>
+                <Text style={styles.title}>{isChange ? 'Change password' : 'Forgot password?'}</Text>
                 <Text style={styles.subtitle}>
-                  Enter the email linked to your account and we&apos;ll send you a 6-digit code.
+                  {isChange
+                    ? 'We’ll send a 6-digit code to your email to confirm it’s you before you set a new password.'
+                    : 'Enter the email linked to your account and we’ll send you a 6-digit code.'}
                 </Text>
               </View>
 
               <View style={styles.field}>
                 <Text style={styles.label}>Email Address</Text>
-                <View style={styles.inputWrap}>
+                <View style={[styles.inputWrap, lockEmail && styles.inputWrapDisabled]}>
                   <MaterialIcons name="mail" size={20} color={COLORS.outline} />
                   <TextInput
                     value={email}
@@ -238,7 +256,7 @@ export function ForgotPassword({ onBack, onDone }: ForgotPasswordProps) {
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoComplete="email"
-                    editable={!busy}
+                    editable={!busy && !lockEmail}
                     style={styles.input}
                   />
                 </View>
@@ -251,7 +269,9 @@ export function ForgotPassword({ onBack, onDone }: ForgotPasswordProps) {
                 disabled={busy}
                 style={({ pressed }) => [styles.primaryBtn, (pressed || busy) && styles.primaryBtnPressed]}
                 accessibilityRole="button">
-                <Text style={styles.primaryText}>{busy ? 'Sending…' : 'Send code'}</Text>
+                <Text style={styles.primaryText}>
+                  {busy ? 'Sending…' : 'Send code to your mail'}
+                </Text>
               </Pressable>
             </>
           )}
@@ -381,13 +401,15 @@ export function ForgotPassword({ onBack, onDone }: ForgotPasswordProps) {
               </View>
               <Text style={styles.title}>Password updated</Text>
               <Text style={styles.subtitle}>
-                Your password has been changed. Please log in with your new password.
+                {isChange
+                  ? 'Your password has been changed. Use it the next time you sign in.'
+                  : 'Your password has been changed. Please log in with your new password.'}
               </Text>
               <Pressable
                 onPress={onDone}
                 style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
                 accessibilityRole="button">
-                <Text style={styles.primaryText}>Back to login</Text>
+                <Text style={styles.primaryText}>{isChange ? 'Done' : 'Back to login'}</Text>
               </Pressable>
             </View>
           )}
@@ -449,6 +471,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.outlineVariant,
     borderRadius: 12,
   },
+  inputWrapDisabled: { backgroundColor: COLORS.surface, opacity: 0.7 },
   input: { flex: 1, fontSize: 16, color: COLORS.onSurface, paddingVertical: 0 },
   codeRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
   codeBox: {

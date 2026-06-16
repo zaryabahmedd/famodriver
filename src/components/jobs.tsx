@@ -126,7 +126,7 @@ function JobDetail({
         <View style={styles.detailSummary}>
           <View style={[styles.statusPill, { backgroundColor: statusBg }]}>
             <MaterialIcons
-              name={isCancelled ? 'cancel' : isDelivered ? 'check-circle' : 'directions-bike'}
+              name={isCancelled ? 'cancel' : isDelivered ? 'check-circle' : 'moped'}
               size={16}
               color={statusColor}
             />
@@ -328,7 +328,7 @@ export function Jobs() {
     } else {
       content = (
         <EmptyState
-          icon="directions-bike"
+          icon="moped"
           title="No active order"
           text="When you accept a delivery request, it will show up here while it's in progress."
         />

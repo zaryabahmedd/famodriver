@@ -21,10 +21,8 @@ const COLORS = {
   outlineVariant: '#d0c6ab',
   error: '#ba1a1a',
   online: '#22c55e',
+  offline: '#9ca3af',
 };
-
-const FALLBACK_AVATAR =
-  'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 type NavItem = {
   icon: keyof typeof MaterialIcons.glyphMap;
@@ -35,16 +33,17 @@ type NavItem = {
 const NAV: NavItem[] = [
   { icon: 'home', label: 'Home', active: true },
   { icon: 'history', label: 'Job History' },
-  { icon: 'directions-bike', label: 'Bike Details' },
+  { icon: 'moped', label: 'Bike Details' },
   { icon: 'star', label: 'Reviews' },
 ];
 
 type SidebarProps = {
   onClose: () => void;
   onNavigate?: (label: string) => void;
+  online?: boolean;
 };
 
-export function Sidebar({ onClose, onNavigate }: SidebarProps) {
+export function Sidebar({ onClose, onNavigate, online = false }: SidebarProps) {
   const insets = useSafeAreaInsets();
   const { logout } = useAuth();
   const { profile, avatar } = useRiderProfileData();
@@ -77,25 +76,23 @@ export function Sidebar({ onClose, onNavigate }: SidebarProps) {
           <View style={styles.profileBlock}>
             <View style={styles.profileRow}>
               <View style={styles.avatarWrap}>
-                <Image source={{ uri: avatar || FALLBACK_AVATAR }} style={styles.avatar} contentFit="cover" />
-                <View style={styles.onlineDot} />
+                {avatar ? (
+                  <Image source={{ uri: avatar }} style={styles.avatar} contentFit="cover" />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                    <MaterialIcons name="person" size={32} color={COLORS.onSurfaceVariant} />
+                  </View>
+                )}
+                <View style={[styles.onlineDot, !online && styles.offlineDot]} />
               </View>
               <View style={styles.profileText}>
                 <Text style={styles.name}>{profile?.full_name || 'Rider'}</Text>
                 <View style={styles.metaRow}>
-                  <MaterialIcons name="star" size={16} color={COLORS.primary} />
-                  <Text style={styles.meta}>4.9 • Online</Text>
+                  <Text style={styles.meta}>{online ? 'Online' : 'Offline'}</Text>
                 </View>
               </View>
             </View>
 
-            <View style={styles.idCard}>
-              <View>
-                <Text style={styles.idLabel}>Rider ID</Text>
-                <Text style={styles.idValue}>#FAM-29384</Text>
-              </View>
-              <MaterialIcons name="qr-code-2" size={28} color={COLORS.outline} />
-            </View>
           </View>
 
           {/* Nav links */}
@@ -189,6 +186,11 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.primaryContainer,
   },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   onlineDot: {
     position: 'absolute',
     bottom: 0,
@@ -200,28 +202,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.surface,
   },
+  offlineDot: {
+    backgroundColor: COLORS.offline,
+  },
   profileText: { flex: 1, gap: 2 },
   name: { fontSize: 16, fontWeight: '600', color: COLORS.onSurface },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   meta: { fontSize: 14, color: COLORS.onSurfaceVariant },
-  idCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: COLORS.surfaceContainerLow,
-    borderWidth: 1,
-    borderColor: COLORS.outlineVariant,
-    borderRadius: 8,
-    padding: 12,
-  },
-  idLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-    color: COLORS.outline,
-  },
-  idValue: { fontSize: 14, fontWeight: '500', color: COLORS.onSurface },
   nav: { gap: 4 },
   navItem: {
     flexDirection: 'row',

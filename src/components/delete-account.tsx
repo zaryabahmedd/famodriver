@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { clearLocalAvatar, deleteRiderAccount, verifyRiderPassword } from '@/hooks/rider-account-api';
+import { deleteRiderAccount, verifyRiderPassword } from '@/hooks/rider-account-api';
 
 const COLORS = {
   surface: '#fbf9f9',
@@ -85,7 +85,6 @@ export function DeleteAccount({ onBack, onDeleted }: DeleteAccountProps) {
         setDeleting(false);
         return;
       }
-      await clearLocalAvatar();
       onDeleted();
     } catch {
       setError('Something went wrong. Please try again.');

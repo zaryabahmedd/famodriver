@@ -4,14 +4,12 @@ import { useState } from 'react';
 import { DeleteAccount } from '@/components/delete-account';
 import { Documents } from '@/components/documents';
 import { EditProfile } from '@/components/edit-profile';
-import { JobHistory } from '@/components/job-history';
 import { Notifications } from '@/components/notifications';
 import { Reviews } from '@/components/reviews';
 import { RiderProfile } from '@/components/rider-profile';
 import { Settings } from '@/components/settings';
 import { Sidebar } from '@/components/sidebar';
 import { VehicleInfo } from '@/components/vehicle-info';
-import { Wallet } from '@/components/wallet';
 import { useAuth } from '@/hooks/use-auth';
 
 type Screen =
@@ -21,8 +19,6 @@ type Screen =
   | 'editProfile'
   | 'notifications'
   | 'reviews'
-  | 'wallet'
-  | 'history'
   | 'deleteAccount';
 
 export default function ProfileScreen() {
@@ -43,8 +39,7 @@ export default function ProfileScreen() {
 
   const handleSidebarNavigate = (label: string) => {
     if (label === 'Reviews') setActive('reviews');
-    else if (label === 'Wallet') setActive('wallet');
-    else if (label === 'Job History') setActive('history');
+    else if (label === 'Job History') router.push('/explore');
     else if (label === 'Bike Details') setActive('vehicle');
   };
 
@@ -74,8 +69,6 @@ export default function ProfileScreen() {
       )}
       {active === 'notifications' && <Notifications onBack={close} />}
       {active === 'reviews' && <Reviews onBack={close} />}
-      {active === 'wallet' && <Wallet onBack={close} />}
-      {active === 'history' && <JobHistory onBack={close} />}
       {active === 'deleteAccount' && <DeleteAccount onBack={close} onDeleted={logout} />}
 
       {menuOpen && (

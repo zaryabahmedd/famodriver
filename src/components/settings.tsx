@@ -4,6 +4,10 @@ import { useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ForgotPassword } from '@/components/forgot-password';
+import { PrivacyPolicy } from '@/components/privacy-policy';
+import { useRiderProfileData } from '@/hooks/rider-account-api';
+
 const COLORS = {
   surface: '#fbf9f9',
   surfaceLowest: '#ffffff',
@@ -26,7 +30,26 @@ type SettingsProps = {
 
 export function Settings({ onBack, onLogout }: SettingsProps) {
   const insets = useSafeAreaInsets();
+  const { profile } = useRiderProfileData();
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [changePassword, setChangePassword] = useState(false);
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+
+  if (showPrivacyPolicy) {
+    return <PrivacyPolicy onBack={() => setShowPrivacyPolicy(false)} />;
+  }
+
+  if (changePassword) {
+    return (
+      <ForgotPassword
+        mode="change"
+        initialEmail={profile?.email ?? ''}
+        lockEmail={!!profile?.email}
+        onBack={() => setChangePassword(false)}
+        onDone={() => setChangePassword(false)}
+      />
+    );
+  }
 
   return (
     <View style={styles.root}>
@@ -56,7 +79,10 @@ export function Settings({ onBack, onLogout }: SettingsProps) {
             </View>
           </View>
           <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]} accessibilityRole="button">
+          <Pressable
+            onPress={() => setChangePassword(true)}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+            accessibilityRole="button">
             <View style={styles.linkLeft}>
               <MaterialIcons name="lock" size={22} color={COLORS.onSurface} />
               <Text style={styles.rowLabel}>Change password</Text>
@@ -64,7 +90,10 @@ export function Settings({ onBack, onLogout }: SettingsProps) {
             <MaterialIcons name="chevron-right" size={22} color={COLORS.onSurfaceVariant} />
           </Pressable>
           <View style={styles.divider} />
-          <Pressable style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]} accessibilityRole="button">
+          <Pressable
+            onPress={() => setShowPrivacyPolicy(true)}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+            accessibilityRole="button">
             <View style={styles.linkLeft}>
               <MaterialIcons name="privacy-tip" size={22} color={COLORS.onSurface} />
               <Text style={styles.rowLabel}>Privacy policy</Text>

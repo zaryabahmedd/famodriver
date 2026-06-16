@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,9 +12,6 @@ const COLORS = {
   scrim: '#1b1c1c',
 };
 
-const AVATAR_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0ujS-tqqpzwjlG_xyAfylS0Yyk_zz0sK0kL6VegDbOI3XKFds6mk57O17CBaGpgTrzNt5CMxP_qATmN2xUx31G2o6qrSrP3Joomsf15Zbvth4XYeHv-MUIvtOUtyNIQZmAxF4GXURmiZLfcfWCtG4XvMb9BIFZ7zlfDtqtEM-LJheTp0_C6K_zZb8B5fmdPgDpJHoQ8jXwObzByov9C4C96cy90E8nXrvgJ-TMYIESe6sjC_1DIkkxWmOZo';
-
 type CallScreenProps = {
   name?: string;
   onEnd: () => void;
@@ -27,7 +23,7 @@ function formatDuration(total: number) {
   return `${m}:${s}`;
 }
 
-export function CallScreen({ name = 'Sara Ali', onEnd }: CallScreenProps) {
+export function CallScreen({ name = 'Customer', onEnd }: CallScreenProps) {
   const insets = useSafeAreaInsets();
   const [connected, setConnected] = useState(false);
   const [seconds, setSeconds] = useState(0);
@@ -50,7 +46,9 @@ export function CallScreen({ name = 'Sara Ali', onEnd }: CallScreenProps) {
       <StatusBar style="light" />
 
       <View style={styles.info}>
-        <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
+        <View style={[styles.avatar, styles.avatarPlaceholder]}>
+          <MaterialIcons name="person" size={56} color={COLORS.onPrimaryContainer} />
+        </View>
         <Text style={styles.name}>{name}</Text>
         <Text style={styles.status}>{connected ? formatDuration(seconds) : 'Calling…'}</Text>
         <Text style={styles.label}>Recipient</Text>
@@ -93,6 +91,11 @@ const styles = StyleSheet.create({
   },
   info: { alignItems: 'center', gap: 10, marginTop: 40 },
   avatar: { width: 104, height: 104, borderRadius: 52, borderWidth: 3, borderColor: COLORS.primaryContainer },
+  avatarPlaceholder: {
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   name: { fontSize: 22, fontWeight: '700', color: '#fff', marginTop: 12 },
   status: { fontSize: 16, color: 'rgba(255,255,255,0.8)' },
   label: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useNavigation, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -11,7 +11,6 @@ import { CompleteDelivery } from '@/components/complete-delivery';
 import { DeliveryCompleted } from '@/components/delivery-completed';
 import { DeliveryRequest } from '@/components/delivery-request';
 import { InTransit } from '@/components/in-transit';
-import { JobHistory } from '@/components/job-history';
 import { Notifications } from '@/components/notifications';
 import { PaymentMethod } from '@/components/payment-method';
 import { PickupNavigation } from '@/components/pickup-navigation';
@@ -49,9 +48,6 @@ const COLORS = {
   onPrimaryFixedVariant: '#554500',
   outlineVariant: '#d0c6ab',
 };
-
-const FALLBACK_AVATAR =
-  'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
 
 const TIPS = [
   'Always check your battery levels before starting a shift.',
@@ -138,8 +134,9 @@ function useTypewriter(tips: string[]) {
 export function RiderHome() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const navigation = useNavigation();
   const { logout } = useAuth();
-  const { profile, avatar } = useRiderProfileData();
+  const { avatar } = useRiderProfileData();
   const [riderId, setRiderId] = useState<string | null>(null);
   const [activeDeliveryId, setActiveDeliveryId] = useState<string | null>(null);
   const [jobPhase, setJobPhase] = useState<JobPhase>(null);
@@ -147,7 +144,6 @@ export function RiderHome() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [reviewsOpen, setReviewsOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const tipText = useTypewriter(TIPS);
   const completedDeliveries = useCompletedDeliveries(riderId);
@@ -157,6 +153,20 @@ export function RiderHome() {
   const online = location.online;
   const jobs = useRiderJobs({ riderId, online });
   usePushNotifications(riderId);
+
+  // Tapping the Home tab (even while it's already the active tab) should bring
+  // the rider back to the home screen by dismissing any full-screen overlay
+  // opened from here (Reviews, Notifications, Job History, Bike Details, menu).
+  // expo-router/ui emits 'tabPress' on the focused tab too, so we can catch it.
+  useEffect(() => {
+    const unsub = navigation.addListener('tabPress' as never, () => {
+      setMenuOpen(false);
+      setNotificationsOpen(false);
+      setReviewsOpen(false);
+      setVehicleOpen(false);
+    });
+    return unsub;
+  }, [navigation]);
 
   // Resolve the rider session id (custom auth -> stored id from login).
   useEffect(() => {
@@ -252,7 +262,13 @@ export function RiderHome() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <Pressable onPress={() => setMenuOpen(true)} accessibilityRole="button" accessibilityLabel="Open menu">
-          <Image source={{ uri: avatar || FALLBACK_AVATAR }} style={styles.avatar} contentFit="cover" />
+          {avatar ? (
+            <Image source={{ uri: avatar }} style={styles.avatar} contentFit="cover" />
+          ) : (
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <MaterialIcons name="person" size={26} color={COLORS.onSurfaceVariant} />
+            </View>
+          )}
         </Pressable>
 
         <View style={styles.toggle}>
@@ -417,12 +433,11 @@ export function RiderHome() {
       {reviewsOpen && <Reviews onBack={() => setReviewsOpen(false)} />}
 
 
-      {historyOpen && <JobHistory onBack={() => setHistoryOpen(false)} />}
-
       {vehicleOpen && <VehicleInfo onBack={() => setVehicleOpen(false)} />}
 
       {menuOpen && (
         <Sidebar
+          online={online}
           onClose={() => setMenuOpen(false)}
           onNavigate={(label) => {
             if (label === 'Reviews') setReviewsOpen(true);
@@ -461,6 +476,11 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     borderWidth: 2,
     borderColor: COLORS.onSurface,
+  },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toggle: {
     flexDirection: 'row',

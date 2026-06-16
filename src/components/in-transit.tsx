@@ -1,5 +1,4 @@
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -29,9 +28,6 @@ const COLORS = {
   onPrimaryContainer: '#6d5a00',
   outlineVariant: '#d0c6ab',
 };
-
-const AVATAR_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0ujS-tqqpzwjlG_xyAfylS0Yyk_zz0sK0kL6VegDbOI3XKFds6mk57O17CBaGpgTrzNt5CMxP_qATmN2xUx31G2o6qrSrP3Joomsf15Zbvth4XYeHv-MUIvtOUtyNIQZmAxF4GXURmiZLfcfWCtG4XvMb9BIFZ7zlfDtqtEM-LJheTp0_C6K_zZb8B5fmdPgDpJHoQ8jXwObzByov9C4C96cy90E8nXrvgJ-TMYIESe6sjC_1DIkkxWmOZo';
 
 type InTransitProps = {
   onArrived: () => void;
@@ -136,7 +132,9 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
 
         <View style={styles.customerRow}>
           <View style={styles.customerInfo}>
-            <Image source={{ uri: AVATAR_URI }} style={styles.avatar} contentFit="cover" />
+            <View style={[styles.avatar, styles.avatarPlaceholder]}>
+              <MaterialIcons name="person" size={30} color={COLORS.onSurfaceVariant} />
+            </View>
             <View style={styles.customerText}>
               <Text style={styles.customerName}>{recipientName}</Text>
               <Text style={styles.customerMeta} numberOfLines={1}>
@@ -320,6 +318,11 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
+  },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   customerText: { flex: 1 },
   customerName: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: COLORS.onSurface },

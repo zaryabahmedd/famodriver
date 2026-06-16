@@ -20,16 +20,13 @@ const COLORS = {
   error: '#ba1a1a',
 };
 
-const PROFILE_URI =
-  'https://lh3.googleusercontent.com/aida/ADBb0uhpzp48WLEOBto34O_YvDuH_HO-sbuCTeRtDvJJASI2tAqxlhrG3BRdIUGbvPPT7goqnUf0sEmcj0uCLtu04Q4CeMFGP55uQj1NQpJ0E9jX2gakN5UbtXTO5aN9HckrZAmBcsnk0HViYDuOM-S2mR4uI2eDYyHROorcUj2vIdmC1dIIfpn-pfK3BumTGuK1LT6hQBbY-ri4p_-WUABuOJB6L1jQp4upa5Yn-e8b08MEUBYEONrHGH1RfA4';
-
 type MenuItem = {
   icon: keyof typeof MaterialIcons.glyphMap;
   label: string;
 };
 
 const MENU: MenuItem[] = [
-  { icon: 'directions-bike', label: 'Bike' },
+  { icon: 'moped', label: 'Bike' },
   { icon: 'description', label: 'Documents' },
   { icon: 'translate', label: 'Language' },
   { icon: 'contact-support', label: 'Help & support' },
@@ -77,15 +74,15 @@ export function RiderProfile({
         {/* Profile header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarRing}>
-            <Image source={avatar ? { uri: avatar } : { uri: PROFILE_URI }} style={styles.avatar} contentFit="cover" />
+            {avatar ? (
+              <Image source={{ uri: avatar }} style={styles.avatar} contentFit="cover" />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <MaterialIcons name="person" size={56} color={COLORS.onSurfaceVariant} />
+              </View>
+            )}
           </View>
           <Text style={styles.name}>{name ?? 'Rider'}</Text>
-          <View style={styles.metaRow}>
-            <MaterialIcons name="star" size={16} color={COLORS.primary} />
-            <Text style={styles.metaStrong}>4.9</Text>
-            <Text style={styles.metaDot}>•</Text>
-            <Text style={styles.meta}>1,284 trips</Text>
-          </View>
           <Pressable
             onPress={onEditProfile}
             style={({ pressed }) => [styles.editBtn, pressed && styles.editBtnPressed]}
@@ -174,6 +171,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
   },
   avatar: { width: '100%', height: '100%', borderRadius: 64 },
+  avatarPlaceholder: {
+    backgroundColor: COLORS.surfaceContainerHigh,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   name: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: COLORS.onSurface },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8 },
   metaStrong: { fontSize: 16, fontWeight: '600', color: COLORS.onSurface },
