@@ -25,11 +25,12 @@ import {
   useCompletedDeliveries,
 } from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
-import { formatKm, formatPrice, haversineMeters, riderEarning } from '@/hooks/maps';
+import { deliveryNetEarning, formatKm, formatPrice, haversineMeters } from '@/hooks/maps';
 import { useActiveOrders } from '@/hooks/use-active-orders';
 import { useAuth } from '@/hooks/use-auth';
 import { useBackHandler } from '@/hooks/use-back-handler';
 import { useRiderJobs } from '@/hooks/use-rider-jobs';
+import { useOnlineStatus } from '@/hooks/use-online-status';
 import { useRiderLocation } from '@/hooks/use-rider-location';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
 
@@ -78,7 +79,7 @@ function deliveredToday(deliveries: CompletedDelivery[]): CompletedDelivery[] {
 function buildTodayStats(deliveries: CompletedDelivery[]): Stat[] {
   const todays = deliveredToday(deliveries);
   const orders = todays.length;
-  const earnings = todays.reduce((sum, d) => sum + riderEarning(d.price), 0);
+  const earnings = todays.reduce((sum, d) => sum + deliveryNetEarning(d), 0);
   const distanceMeters = todays.reduce(
     (sum, d) =>
       sum + haversineMeters({ lat: d.pickup_lat, lng: d.pickup_lng }, { lat: d.dropoff_lat, lng: d.dropoff_lng }),
@@ -153,6 +154,20 @@ export function RiderHome() {
 
   const location = useRiderLocation({ riderId, activeDeliveryId });
   const online = location.online;
+  const onlineStatus = useOnlineStatus();
+
+  useEffect(() => {
+    onlineStatus.setOnline(location.online);
+  }, [location.online]);
+
+  useEffect(() => {
+    onlineStatus.setStarting(location.starting);
+  }, [location.starting]);
+
+  useEffect(() => {
+    onlineStatus.setGoOnline(location.goOnline);
+  }, [location.goOnline]);
+
   const jobs = useRiderJobs({ riderId, online });
   const { count: activeOrdersCount, refresh: refreshActiveOrders } = useActiveOrders(riderId);
   usePushNotifications(riderId);
@@ -197,7 +212,7 @@ export function RiderHome() {
 
   // Tapping the Home tab (even while it's already the active tab) should bring
   // the rider back to the home screen by dismissing any full-screen overlay
-  // opened from here (Reviews, Notifications, Job History, Bike Details, menu).
+  // opened from here (Reviews, Notifications, Ride History, Bike Details, menu).
   // expo-router/ui emits 'tabPress' on the focused tab too, so we can catch it.
   useEffect(() => {
     const unsub = navigation.addListener('tabPress' as never, () => {
@@ -337,65 +352,84 @@ export function RiderHome() {
         </Pressable>
       </View>
 
-      <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
-        showsVerticalScrollIndicator={false}>
-        {/* Hero */}
-        <View style={styles.hero}>
-          <Text style={styles.heroTitle}>Today&apos;s Activity</Text>
-          <Text style={styles.heroSubtitle}>
-            {online
-              ? 'You are currently online and ready for new jobs.'
-              : 'You are offline. Go online to receive new jobs.'}
-          </Text>
-        </View>
-
-        {/* Live count of orders currently assigned to this rider */}
-        <View style={styles.activeCard}>
-          <View style={styles.activeIcon}>
-            <MaterialIcons name="moped" size={24} color={COLORS.onPrimaryContainer} />
-          </View>
-          <View style={styles.activeTextWrap}>
-            <Text style={styles.activeLabel}>Active Orders</Text>
-            <Text style={styles.activeSub}>
-              {activeOrdersCount > 0
-                ? `${activeOrdersCount} ${activeOrdersCount === 1 ? 'order' : 'orders'} assigned to you right now`
-                : 'No active orders right now'}
+      {online ? (
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
+          showsVerticalScrollIndicator={false}>
+          {/* Hero */}
+          <View style={styles.hero}>
+            <Text style={styles.heroTitle}>Today&apos;s Activity</Text>
+            <Text style={styles.heroSubtitle}>
+              You are currently online and ready for new jobs.
             </Text>
           </View>
-          <Text style={styles.activeCount}>{activeOrdersCount}</Text>
-        </View>
 
-        {/* Pro tips */}
-        <View style={styles.tipsCard}>
-          <View style={styles.tipsHeader}>
-            <MaterialIcons name="lightbulb" size={20} color={COLORS.primary} />
-            <Text style={styles.tipsTitle}>PRO TIPS</Text>
-          </View>
-          <View style={styles.tipsBody}>
-            <Text style={styles.tipsText}>{tipText}</Text>
-          </View>
-        </View>
-
-        {/* Stats grid */}
-        <View style={styles.grid}>
-          {todayStats.map((s) => (
-            <View key={s.label} style={styles.statCard}>
-              <View style={styles.statHeader}>
-                <MaterialIcons name={s.icon} size={20} color={COLORS.primary} />
-                <Text style={styles.statLabel}>{s.label}</Text>
-              </View>
-              {s.highlight ? (
-                <View style={styles.statHighlight}>
-                  <Text style={styles.statHighlightValue}>{s.value}</Text>
-                </View>
-              ) : (
-                <Text style={styles.statValue}>{s.value}</Text>
-              )}
+          {/* Live count of orders currently assigned to this rider */}
+          <View style={styles.activeCard}>
+            <View style={styles.activeIcon}>
+              <MaterialIcons name="moped" size={24} color={COLORS.onPrimaryContainer} />
             </View>
-          ))}
+            <View style={styles.activeTextWrap}>
+              <Text style={styles.activeLabel}>Active Orders</Text>
+              <Text style={styles.activeSub}>
+                {activeOrdersCount > 0
+                  ? `${activeOrdersCount} ${activeOrdersCount === 1 ? 'order' : 'orders'} assigned to you right now`
+                  : 'No active orders right now'}
+              </Text>
+            </View>
+            <Text style={styles.activeCount}>{activeOrdersCount}</Text>
+          </View>
+
+          {/* Pro tips */}
+          <View style={styles.tipsCard}>
+            <View style={styles.tipsHeader}>
+              <MaterialIcons name="lightbulb" size={20} color={COLORS.primary} />
+              <Text style={styles.tipsTitle}>PRO TIPS</Text>
+            </View>
+            <View style={styles.tipsBody}>
+              <Text style={styles.tipsText}>{tipText}</Text>
+            </View>
+          </View>
+
+          {/* Stats grid */}
+          <View style={styles.grid}>
+            {todayStats.map((s) => (
+              <View key={s.label} style={styles.statCard}>
+                <View style={styles.statHeader}>
+                  <MaterialIcons name={s.icon} size={20} color={COLORS.primary} />
+                  <Text style={styles.statLabel}>{s.label}</Text>
+                </View>
+                {s.highlight ? (
+                  <View style={styles.statHighlight}>
+                    <Text style={styles.statHighlightValue}>{s.value}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.statValue}>{s.value}</Text>
+                )}
+              </View>
+            ))}
+          </View>
+        </ScrollView>
+      ) : (
+        <View style={styles.offlineContainer}>
+          <View style={styles.offlineIconWrap}>
+            <MaterialIcons name="wifi-off" size={56} color={COLORS.outlineVariant} />
+          </View>
+          <Text style={styles.offlineTitle}>You&apos;re Offline</Text>
+          <Text style={styles.offlineSubtitle}>
+            Go online to start receiving delivery requests and access all app features.
+          </Text>
+          <Pressable
+            onPress={() => toggleOnline(true)}
+            disabled={location.starting}
+            style={({ pressed }) => [styles.goOnlineBtn, pressed && styles.goOnlineBtnPressed]}>
+            <MaterialIcons name="power-settings-new" size={20} color="#000000" />
+            <Text style={styles.goOnlineBtnText}>
+              {location.starting ? 'Going Online…' : 'Go Online'}
+            </Text>
+          </Pressable>
         </View>
-      </ScrollView>
+      )}
 
       {jobs.pendingOffer && !jobs.activeDelivery && (
         <DeliveryRequest
@@ -498,7 +532,7 @@ export function RiderHome() {
           onClose={() => setMenuOpen(false)}
           onNavigate={(label) => {
             if (label === 'Reviews') setReviewsOpen(true);
-            else if (label === 'Job History') router.push('/explore');
+            else if (label === 'Ride History') router.push('/explore');
             else if (label === 'Bike Details') setVehicleOpen(true);
             else if (label === 'Help & Support') router.push('/help');
           }}
@@ -661,4 +695,56 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(251,209,3,0.4)',
   },
   statHighlightValue: { fontSize: 20, fontWeight: '800', color: COLORS.onPrimaryFixedVariant },
+
+  // Offline dashboard
+  offlineContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 16,
+  },
+  offlineIconWrap: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    backgroundColor: COLORS.surfaceContainerLow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  offlineTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: COLORS.onSurface,
+    textAlign: 'center',
+  },
+  offlineSubtitle: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: COLORS.onSurfaceVariant,
+    textAlign: 'center',
+    maxWidth: 300,
+  },
+  goOnlineBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.primaryContainer,
+    height: 56,
+    borderRadius: 28,
+    paddingHorizontal: 32,
+    marginTop: 8,
+  },
+  goOnlineBtnPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.97 }],
+  },
+  goOnlineBtnText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#000000',
+  },
 });

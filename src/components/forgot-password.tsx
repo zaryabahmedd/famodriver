@@ -407,8 +407,13 @@ export function ForgotPassword({
               </Text>
               <Pressable
                 onPress={onDone}
-                style={({ pressed }) => [styles.primaryBtn, pressed && styles.primaryBtnPressed]}
+                style={({ pressed }) => [styles.doneBtn, pressed && styles.primaryBtnPressed]}
                 accessibilityRole="button">
+                <MaterialIcons
+                  name={isChange ? 'check' : 'login'}
+                  size={20}
+                  color={COLORS.onPrimaryContainer}
+                />
                 <Text style={styles.primaryText}>{isChange ? 'Done' : 'Back to login'}</Text>
               </Pressable>
             </View>
@@ -498,6 +503,17 @@ const styles = StyleSheet.create({
   primaryBtnPressed: { opacity: 0.85, transform: [{ scale: 0.99 }] },
   primaryText: { fontSize: 16, fontWeight: '700', color: COLORS.onPrimaryContainer },
   confirmation: { alignItems: 'center', gap: 16 },
+  doneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    alignSelf: 'stretch',
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryContainer,
+    marginTop: 12,
+  },
   successIcon: {
     width: 80,
     height: 80,

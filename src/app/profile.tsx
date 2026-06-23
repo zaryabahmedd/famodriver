@@ -66,7 +66,7 @@ export default function ProfileScreen() {
 
   const handleSidebarNavigate = (label: string) => {
     if (label === 'Reviews') setActive('reviews');
-    else if (label === 'Job History') router.push('/explore');
+    else if (label === 'Ride History') router.push('/explore');
     else if (label === 'Bike Details') setActive('vehicle');
   };
 

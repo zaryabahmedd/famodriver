@@ -1,8 +1,10 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
+    FlatList,
     KeyboardAvoidingView,
+    Modal,
     Platform,
     Pressable,
     ScrollView,
@@ -14,7 +16,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { submitRiderApplication, updateRiderProfile } from '@/hooks/rider-account-api';
-
 
 const COLORS = {
   background: '#fbf9f9',
@@ -29,9 +30,55 @@ const COLORS = {
   primary: '#715d00',
   primaryContainer: '#fbd103',
   cardBg: '#fff9db',
+  error: '#ba1a1a',
 };
 
-const BANKS = ['Access', 'GTBank', 'Zenith', 'UBA', 'First Bank', 'OPay'];
+const NIGERIAN_BANKS = [
+  'Access Bank Plc',
+  'Accion Microfinance Bank',
+  'ALAT',
+  'Carbon Microfinance Bank',
+  'Citibank Nigeria Limited',
+  'Ecobank Nigeria Limited',
+  'Eyowo',
+  'FairMoney Microfinance Bank',
+  'Fidelity Bank Plc',
+  'First Bank of Nigeria Limited',
+  'First City Monument Bank (FCMB)',
+  'Globus Bank Limited',
+  'Guaranty Trust Bank (GTBank)',
+  'Jaiz Bank Plc',
+  'Keystone Bank Limited',
+  'Kuda Bank',
+  'LAPO Microfinance Bank',
+  'Lotus Bank Limited',
+  'Mintyn',
+  'Moniepoint',
+  'Nova Merchant Bank',
+  'OPay',
+  'Optimus Bank Limited',
+  'PalmPay',
+  'Parallex Bank Limited',
+  'Polaris Bank Limited',
+  'PremiumTrust Bank Limited',
+  'Providus Bank Limited',
+  'Rubies Bank',
+  'Signature Bank Limited',
+  'Sparkle',
+  'Stanbic IBTC Bank Plc',
+  'Standard Chartered Bank Nigeria Limited',
+  'Sterling Bank Limited',
+  'SunTrust Bank Nigeria Limited',
+  'TAJBank Limited',
+  'Titan Trust Bank Limited',
+  'Union Bank of Nigeria Plc',
+  'United Bank for Africa (UBA)',
+  'Unity Bank Plc',
+  'VBank',
+  'VFD Microfinance Bank',
+  'Wema Bank Plc',
+  'Zenith Bank Plc',
+];
 
 type PayoutDetailsProps = {
   riderId?: string;
@@ -41,26 +88,48 @@ type PayoutDetailsProps = {
 
 export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
   const insets = useSafeAreaInsets();
+  const [accountHolder, setAccountHolder] = useState('');
   const [bank, setBank] = useState('');
-  const [selectedChip, setSelectedChip] = useState<string | null>(null);
-  const [accountNumber, setAccountNumber] = useState('0123456789');
+  const [accountNumber, setAccountNumber] = useState('');
   const [bvn, setBvn] = useState('');
   const [focused, setFocused] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [showBankPicker, setShowBankPicker] = useState(false);
+  const [bankSearch, setBankSearch] = useState('');
 
-  const selectChip = (name: string) => {
-    setSelectedChip(name);
+  const filteredBanks = useMemo(() => {
+    if (!bankSearch.trim()) return NIGERIAN_BANKS;
+    const q = bankSearch.toLowerCase();
+    return NIGERIAN_BANKS.filter((b) => b.toLowerCase().includes(q));
+  }, [bankSearch]);
+
+  const selectBank = useCallback((name: string) => {
     setBank(name);
-  };
+    setBankSearch('');
+    setShowBankPicker(false);
+  }, []);
 
   const handleContinue = async () => {
-    if (!bank || !accountNumber || !bvn) {
-      alert('Please fill in all layout details (Bank, Account Number, BVN/NIN).');
+    if (!accountHolder.trim()) {
+      alert('Please enter the account holder name.');
+      return;
+    }
+    if (!bank) {
+      alert('Please select a bank.');
+      return;
+    }
+    if (!accountNumber.trim()) {
+      alert('Please enter your account number.');
+      return;
+    }
+    if (!bvn.trim()) {
+      alert('Please enter your BVN or NIN.');
       return;
     }
     setLoading(true);
     try {
       const rider = await updateRiderProfile({
+        payout_account_holder: accountHolder.trim(),
         payout_bank: bank,
         payout_account_number: accountNumber,
         payout_bvn: bvn,
@@ -121,59 +190,51 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
 
           {/* Account Holder */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>ACCOUNT HOLDER</Text>
-            <View style={styles.inputWrap}>
+            <Text style={styles.label}>
+              ACCOUNT HOLDER <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={[styles.inputWrap, focused === 'holder' && styles.inputWrapFocused]}>
               <TextInput
-                value="Rashid Ahmed"
-                editable={false}
-                style={[styles.input, styles.inputDisabled]}
+                value={accountHolder}
+                onChangeText={setAccountHolder}
+                onFocus={() => setFocused('holder')}
+                onBlur={() => setFocused(null)}
+                placeholder="Enter account holder name"
+                placeholderTextColor={COLORS.outline}
+                autoCapitalize="words"
+                style={styles.input}
               />
             </View>
           </View>
 
           {/* Bank */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>BANK</Text>
-            <View style={[styles.inputWrap, focused === 'bank' && styles.inputWrapFocused]}>
-              <TextInput
-                value={bank}
-                onChangeText={(t) => {
-                  setBank(t);
-                  setSelectedChip(null);
-                }}
-                onFocus={() => setFocused('bank')}
-                onBlur={() => setFocused(null)}
-                placeholder="Search all Nigerian banks"
-                placeholderTextColor={COLORS.outline}
-                style={styles.input}
-              />
-            </View>
-            <View style={styles.chips}>
-              {BANKS.map((name) => {
-                const active = selectedChip === name;
-                return (
-                  <Pressable
-                    key={name}
-                    onPress={() => selectChip(name)}
-                    style={[styles.chip, active && styles.chipActive]}>
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Text style={styles.label}>
+              BANK <Text style={styles.required}>*</Text>
+            </Text>
+            <Pressable
+              onPress={() => setShowBankPicker(true)}
+              style={[styles.inputWrap, styles.dropdownWrap]}>
+              <Text style={bank ? styles.dropdownText : styles.dropdownPlaceholder}>
+                {bank || 'Select your bank'}
+              </Text>
+              <MaterialIcons name="arrow-drop-down" size={24} color={COLORS.secondary} />
+            </Pressable>
           </View>
 
           {/* Account Number */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>ACCOUNT NUMBER</Text>
+            <Text style={styles.label}>
+              ACCOUNT NUMBER <Text style={styles.required}>*</Text>
+            </Text>
             <View style={[styles.inputWrap, focused === 'acct' && styles.inputWrapFocused]}>
               <TextInput
                 value={accountNumber}
                 onChangeText={setAccountNumber}
                 onFocus={() => setFocused('acct')}
                 onBlur={() => setFocused(null)}
+                placeholder="Enter your account number"
+                placeholderTextColor={COLORS.outline}
                 keyboardType="number-pad"
                 style={styles.input}
               />
@@ -182,7 +243,9 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
 
           {/* BVN or NIN */}
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>BVN OR NIN</Text>
+            <Text style={styles.label}>
+              BVN OR NIN <Text style={styles.required}>*</Text>
+            </Text>
             <View style={[styles.inputWrap, focused === 'bvn' && styles.inputWrapFocused]}>
               <TextInput
                 value={bvn}
@@ -223,6 +286,69 @@ export function PayoutDetails({ onContinue, onBack }: PayoutDetailsProps) {
           {!loading && <MaterialIcons name="arrow-forward" size={20} color="#000000" />}
         </Pressable>
       </View>
+
+      {/* Bank Picker Modal */}
+      <Modal
+        visible={showBankPicker}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowBankPicker(false)}>
+        <View style={[styles.modalRoot, { paddingTop: insets.top }]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Bank</Text>
+            <Pressable
+              onPress={() => {
+                setBankSearch('');
+                setShowBankPicker(false);
+              }}
+              hitSlop={10}>
+              <MaterialIcons name="close" size={24} color={COLORS.onSurface} />
+            </Pressable>
+          </View>
+
+          <View style={styles.modalSearchWrap}>
+            <MaterialIcons name="search" size={20} color={COLORS.outline} style={styles.searchIcon} />
+            <TextInput
+              value={bankSearch}
+              onChangeText={setBankSearch}
+              placeholder="Search banks..."
+              placeholderTextColor={COLORS.outline}
+              autoFocus
+              style={styles.modalSearchInput}
+            />
+            {bankSearch.length > 0 && (
+              <Pressable onPress={() => setBankSearch('')} hitSlop={8}>
+                <MaterialIcons name="cancel" size={18} color={COLORS.outline} />
+              </Pressable>
+            )}
+          </View>
+
+          <FlatList
+            data={filteredBanks}
+            keyExtractor={(item) => item}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.modalList}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No banks found</Text>
+            }
+            renderItem={({ item }) => {
+              const selected = item === bank;
+              return (
+                <Pressable
+                  onPress={() => selectBank(item)}
+                  style={[styles.bankRow, selected && styles.bankRowSelected]}>
+                  <Text style={[styles.bankRowText, selected && styles.bankRowTextSelected]}>
+                    {item}
+                  </Text>
+                  {selected && (
+                    <MaterialIcons name="check" size={20} color={COLORS.primary} />
+                  )}
+                </Pressable>
+              );
+            }}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -308,6 +434,10 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     color: COLORS.secondary,
   },
+  required: {
+    color: COLORS.error,
+    fontSize: 12,
+  },
   inputWrap: {
     backgroundColor: COLORS.surfaceLowest,
     borderWidth: 1,
@@ -325,34 +455,20 @@ const styles = StyleSheet.create({
     color: COLORS.onSurface,
     ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
   },
-  inputDisabled: {
-    color: COLORS.onSurfaceVariant,
-  },
-  chips: {
+  dropdownWrap: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: COLORS.outlineVariant,
-    backgroundColor: COLORS.surfaceLowest,
-  },
-  chipActive: {
-    backgroundColor: COLORS.onSurface,
-    borderColor: COLORS.onSurface,
-  },
-  chipText: {
-    fontSize: 14,
-    fontWeight: '700',
+  dropdownText: {
+    fontSize: 16,
     color: COLORS.onSurface,
+    flex: 1,
   },
-  chipTextActive: {
-    color: '#ffffff',
+  dropdownPlaceholder: {
+    fontSize: 16,
+    color: COLORS.outline,
+    flex: 1,
   },
   authCard: {
     flexDirection: 'row',
@@ -414,5 +530,77 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#000000',
+  },
+
+  // Modal styles
+  modalRoot: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: COLORS.secondaryContainer,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.onSurface,
+  },
+  modalSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: COLORS.surfaceLowest,
+    borderWidth: 1,
+    borderColor: COLORS.outlineVariant,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    height: 48,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  modalSearchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: COLORS.onSurface,
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null),
+  },
+  modalList: {
+    paddingHorizontal: 12,
+    paddingBottom: 40,
+  },
+  bankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  bankRowSelected: {
+    backgroundColor: COLORS.cardBg,
+  },
+  bankRowText: {
+    fontSize: 16,
+    color: COLORS.onSurface,
+    flex: 1,
+  },
+  bankRowTextSelected: {
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 32,
+    fontSize: 15,
+    color: COLORS.secondary,
   },
 });

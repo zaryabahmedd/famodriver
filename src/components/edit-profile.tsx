@@ -20,7 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
     getRiderProfile,
-    updateRiderProfile,
+    getRiderProfileChangeStatus,
+    requestRiderProfileChange,
     uploadRiderAvatar,
 } from '@/hooks/rider-account-api';
 
@@ -51,6 +52,10 @@ const FIELDS: FieldDef[] = [
   { key: 'phone_number', label: 'Phone Number', icon: 'phone', keyboardType: 'phone-pad' },
 ];
 
+function formatDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
 type EditProfileProps = {
   onBack?: () => void;
   onSave?: () => void;
@@ -73,21 +78,45 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
     base64: string;
     mimeType: string;
   } | null>(null);
+  // The originally-loaded values, so we only submit fields that actually changed.
+  const [original, setOriginal] = useState<{ full_name: string; phone_number: string }>({
+    full_name: '',
+    phone_number: '',
+  });
+  // Approval/lock state. `pending` means a request is already awaiting review;
+  // `lockedUntil` (if in the future) means a recent change was approved and the
+  // rider must wait out the 30-day window.
+  const [hasPending, setHasPending] = useState(false);
+  const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
 
-  // Load the rider's real profile.
+  // Load the rider's real profile plus any pending request / lock state.
   useEffect(() => {
     let active = true;
     (async () => {
-      const profile = await getRiderProfile();
+      const [profile, status] = await Promise.all([
+        getRiderProfile(),
+        getRiderProfileChangeStatus(),
+      ]);
       if (!active) return;
-      if (profile) {
-        setValues({
-          full_name: profile.full_name ?? '',
-          email: profile.email ?? '',
-          phone_number: profile.phone_number ?? '',
-        });
-        setAvatar(profile.avatar_url ?? null);
-      }
+
+      const baseName = profile?.full_name ?? '';
+      const basePhone = profile?.phone_number ?? '';
+      setOriginal({ full_name: baseName, phone_number: basePhone });
+
+      // While a request is pending, show the submitted values so the rider sees
+      // what they asked for (falling back to their live profile for unchanged fields).
+      const pending = status.pending;
+      setValues({
+        full_name: pending?.full_name ?? baseName,
+        email: profile?.email ?? '',
+        phone_number: pending?.phone_number ?? basePhone,
+      });
+      setAvatar(pending?.avatar_url ?? profile?.avatar_url ?? null);
+
+      setHasPending(Boolean(pending));
+      const lock = status.lockedUntil ? new Date(status.lockedUntil) : null;
+      setLockedUntil(lock && lock.getTime() > Date.now() ? lock : null);
+
       setLoading(false);
     })();
     return () => {
@@ -95,7 +124,11 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
     };
   }, []);
 
+  // Editing is disabled while a request is pending, or during the 30-day lock.
+  const locked = hasPending || lockedUntil !== null;
+
   const pickPhoto = async () => {
+    if (locked) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
@@ -122,15 +155,27 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
   };
 
   const handleSave = async () => {
-    if (saving) return;
+    if (saving || locked) return;
     const fullName = values.full_name.trim();
     if (!fullName) {
       Alert.alert('Name required', 'Please enter your full name.');
       return;
     }
+    const phone = values.phone_number.trim();
+
+    // Only submit the fields that actually changed, so an unchanged "save" never
+    // burns the 30-day lock.
+    const changes: { full_name?: string; phone_number?: string | null; avatar_url?: string } = {};
+    if (fullName !== original.full_name.trim()) changes.full_name = fullName;
+    if (phone !== original.phone_number.trim()) changes.phone_number = phone || null;
+
+    if (!pickedPhoto && Object.keys(changes).length === 0) {
+      Alert.alert('No changes', 'You haven’t changed anything yet.');
+      return;
+    }
+
     setSaving(true);
     try {
-      let avatarUrl: string | undefined;
       if (pickedPhoto) {
         const result = await uploadRiderAvatar(
           pickedPhoto.uri,
@@ -145,19 +190,35 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
           );
           return;
         }
-        avatarUrl = result.url;
+        changes.avatar_url = result.url;
       }
-      const updated = await updateRiderProfile({
-        full_name: fullName,
-        phone_number: values.phone_number.trim() || null,
-        ...(avatarUrl ? { avatar_url: avatarUrl } : {}),
-      });
-      if (!updated) {
-        Alert.alert('Could not save', 'Your changes were not saved. Please try again.');
+
+      const result = await requestRiderProfileChange(changes);
+      if (!result.ok) {
+        if (result.error === 'profile_change_pending') {
+          Alert.alert(
+            'Change already pending',
+            'You already have a profile change awaiting admin approval.',
+          );
+        } else if (result.error === 'profile_edit_locked') {
+          const until = result.lockedUntil ? formatDate(new Date(result.lockedUntil)) : null;
+          Alert.alert(
+            'Too soon to change',
+            until
+              ? `Your profile can only be changed once every 30 days. You can edit again on ${until}.`
+              : 'Your profile can only be changed once every 30 days.',
+          );
+        } else {
+          Alert.alert('Could not submit', 'Your changes were not submitted. Please try again.');
+        }
         return;
       }
-      setAvatar(updated.avatar_url ?? null);
+
       setPickedPhoto(null);
+      Alert.alert(
+        'Submitted for approval',
+        'Your changes were sent to the admin for approval and will take effect once approved.',
+      );
       onSave?.();
     } finally {
       setSaving(false);
@@ -189,6 +250,23 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 24 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
+          {hasPending ? (
+            <View style={styles.banner}>
+              <MaterialIcons name="hourglass-top" size={20} color={COLORS.onPrimaryContainer} />
+              <Text style={styles.bannerText}>
+                Your changes are awaiting admin approval. They’ll take effect once approved.
+              </Text>
+            </View>
+          ) : lockedUntil ? (
+            <View style={styles.banner}>
+              <MaterialIcons name="lock-clock" size={20} color={COLORS.onPrimaryContainer} />
+              <Text style={styles.bannerText}>
+                Profile can be changed once every 30 days. You can edit again on{' '}
+                {formatDate(lockedUntil)}.
+              </Text>
+            </View>
+          ) : null}
+
           <View style={styles.avatarSection}>
             <View style={styles.avatarRing}>
               {photoUri ? (
@@ -198,38 +276,49 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
                   <MaterialIcons name="person" size={52} color={COLORS.outline} />
                 </View>
               )}
-              <Pressable
-                onPress={pickPhoto}
-                style={styles.cameraBtn}
-                accessibilityRole="button"
-                accessibilityLabel="Change photo">
-                <MaterialIcons name="photo-camera" size={18} color={COLORS.onPrimaryContainer} />
-              </Pressable>
+              {!locked && (
+                <Pressable
+                  onPress={pickPhoto}
+                  style={styles.cameraBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Change photo">
+                  <MaterialIcons name="photo-camera" size={18} color={COLORS.onPrimaryContainer} />
+                </Pressable>
+              )}
             </View>
-            <Pressable onPress={pickPhoto} accessibilityRole="button">
-              <Text style={styles.changePhoto}>
-                {pickedPhoto ? 'Photo selected · tap to change' : 'Change photo'}
-              </Text>
-            </Pressable>
+            {!locked && (
+              <Pressable onPress={pickPhoto} accessibilityRole="button">
+                <Text style={styles.changePhoto}>
+                  {pickedPhoto ? 'Photo selected · tap to change' : 'Change photo'}
+                </Text>
+              </Pressable>
+            )}
           </View>
 
           <View style={styles.form}>
-            {FIELDS.map((field) => (
-              <View key={field.key} style={styles.field}>
-                <Text style={styles.label}>{field.label}</Text>
-                <View style={[styles.inputWrap, field.readonly && styles.inputWrapDisabled]}>
-                  <MaterialIcons name={field.icon} size={20} color={COLORS.outline} />
-                  <TextInput
-                    value={values[field.key]}
-                    onChangeText={(t) => setValues((v) => ({ ...v, [field.key]: t }))}
-                    keyboardType={field.keyboardType}
-                    editable={!field.readonly}
-                    style={[styles.input, field.readonly && styles.inputDisabled]}
-                    placeholderTextColor={COLORS.outline}
-                  />
+            {FIELDS.map((field) => {
+              const disabled = field.readonly || locked;
+              return (
+                <View key={field.key} style={styles.field}>
+                  <Text style={styles.label}>{field.label}</Text>
+                  <View style={[styles.inputWrap, disabled && styles.inputWrapDisabled]}>
+                    <MaterialIcons name={field.icon} size={20} color={COLORS.outline} />
+                    <TextInput
+                      value={values[field.key]}
+                      onChangeText={(t) => setValues((v) => ({ ...v, [field.key]: t }))}
+                      keyboardType={field.keyboardType}
+                      editable={!disabled}
+                      style={[styles.input, disabled && styles.inputDisabled]}
+                      placeholderTextColor={COLORS.outline}
+                    />
+                  </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
+            <Text style={styles.helperText}>
+              Name, phone and photo changes require admin approval and can only be changed once
+              every 30 days. Email can’t be changed here.
+            </Text>
           </View>
         </ScrollView>
         )}
@@ -237,17 +326,19 @@ export function EditProfile({ onBack, onSave }: EditProfileProps) {
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
           <Pressable
             onPress={handleSave}
-            disabled={saving || loading}
+            disabled={saving || loading || locked}
             style={({ pressed }) => [
               styles.saveBtn,
-              (saving || loading) && styles.saveBtnDisabled,
+              (saving || loading || locked) && styles.saveBtnDisabled,
               pressed && styles.saveBtnPressed,
             ]}
             accessibilityRole="button">
             {saving ? (
               <ActivityIndicator color={COLORS.onPrimaryContainer} />
             ) : (
-              <Text style={styles.saveText}>Save changes</Text>
+              <Text style={styles.saveText}>
+                {locked ? 'Changes locked' : 'Submit for approval'}
+              </Text>
             )}
           </Pressable>
         </View>
@@ -290,6 +381,16 @@ const styles = StyleSheet.create({
     width: '100%',
     alignSelf: 'center',
   },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryContainer,
+  },
+  bannerText: { flex: 1, fontSize: 13, fontWeight: '600', color: COLORS.onPrimaryContainer },
+  helperText: { fontSize: 12, color: COLORS.onSurfaceVariant, lineHeight: 17 },
   avatarSection: { alignItems: 'center', gap: 10 },
   avatarRing: {
     width: 112,

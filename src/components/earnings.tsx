@@ -6,7 +6,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { formatPrice, riderEarning } from '@/hooks/maps';
+import { deliveryNetEarning, formatPrice } from '@/hooks/maps';
 import { CompletedDelivery, useCompletedDeliveries } from '@/hooks/rider-delivery-history';
 import { getStoredRiderId } from '@/hooks/rider-session';
 import { useBackHandler } from '@/hooks/use-back-handler';
@@ -74,7 +74,7 @@ function deliveriesInWindow(deliveries: CompletedDelivery[], start: Date, end: D
 }
 
 function totalRiderEarnings(deliveries: CompletedDelivery[]): number {
-  return deliveries.reduce((sum, d) => sum + riderEarning(d.price), 0);
+  return deliveries.reduce((sum, d) => sum + deliveryNetEarning(d), 0);
 }
 
 function rangeDateLabel(range: Range): string {
@@ -104,7 +104,7 @@ function lastSevenDaysBars(deliveries: CompletedDelivery[]): Bar[] {
     const completed = new Date(delivery.completed_at);
     completed.setHours(0, 0, 0, 0);
     const bucket = days.find((d) => d.date.getTime() === completed.getTime());
-    if (bucket) bucket.total += riderEarning(delivery.price);
+    if (bucket) bucket.total += deliveryNetEarning(delivery);
   }
   const max = Math.max(1, ...days.map((d) => d.total));
   return days.map((d) => ({

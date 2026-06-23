@@ -25,6 +25,7 @@ export type RiderProfile = {
   vehicle_year: string | null;
   vehicle_plate: string | null;
   vehicle_battery_capacity: string | null;
+  payout_account_holder: string | null;
   payout_bank: string | null;
   payout_account_number: string | null;
   payout_bvn: string | null;
@@ -36,23 +37,48 @@ export type RiderProfile = {
   avatar_url: string | null;
 };
 
+// full_name / phone_number / avatar_url are NOT here — those go through the
+// admin-approved request flow (see requestRiderProfileChange) and the 30-day lock.
 export type ProfileUpdate = Partial<
   Pick<
     RiderProfile,
-    | 'full_name'
-    | 'phone_number'
     | 'vehicle_type'
     | 'vehicle_brand'
     | 'vehicle_model'
     | 'vehicle_year'
     | 'vehicle_plate'
     | 'vehicle_battery_capacity'
+    | 'payout_account_holder'
     | 'payout_bank'
     | 'payout_account_number'
     | 'payout_bvn'
-    | 'avatar_url'
   >
 >;
+
+/** A queued profile change awaiting admin approval. */
+export type RiderProfileChangeRequest = {
+  id: string;
+  full_name: string | null;
+  phone_number: string | null;
+  avatar_url: string | null;
+  status: string;
+  requested_at: string;
+};
+
+export type ProfileChangeStatus = {
+  /** The pending request, if the rider already submitted one. */
+  pending: RiderProfileChangeRequest | null;
+  /** If in the future, the rider can't submit a new change until then. */
+  lockedUntil: string | null;
+};
+
+export type RequestProfileChangeResult = {
+  ok: boolean;
+  request?: RiderProfileChangeRequest;
+  /** 'profile_change_pending' | 'profile_edit_locked' | other backend error. */
+  error?: string;
+  lockedUntil?: string;
+};
 
 export type DocType =
   | 'license'
@@ -91,6 +117,55 @@ export async function updateRiderProfile(profile: ProfileUpdate): Promise<RiderP
   }
   DeviceEventEmitter.emit(PROFILE_UPDATED_EVENT);
   return (data.rider as RiderProfile) ?? null;
+}
+
+/**
+ * Submit a name/phone/photo change for admin approval. The change is NOT applied
+ * to the live profile here — it's queued and takes effect only once an admin
+ * approves it. Also subject to a once-every-30-days lock enforced server-side.
+ * Only pass the fields that actually changed.
+ */
+export async function requestRiderProfileChange(changes: {
+  full_name?: string | null;
+  phone_number?: string | null;
+  avatar_url?: string | null;
+}): Promise<RequestProfileChangeResult> {
+  const token = await getRiderToken();
+  if (!token) return { ok: false, error: 'no_session' };
+  const { data, error } = await callBackend(
+    'rider-profile',
+    { action: 'request_profile_change', profile: changes },
+    { token },
+  );
+  if (error || !data) {
+    return { ok: false, error: error?.message ?? 'request_failed' };
+  }
+  if (!data.ok) {
+    return {
+      ok: false,
+      error: (data.error as string) ?? 'request_failed',
+      lockedUntil: data.lockedUntil as string | undefined,
+    };
+  }
+  return { ok: true, request: data.request as RiderProfileChangeRequest };
+}
+
+/** Read whether a change request is pending and/or the 30-day lock is active. */
+export async function getRiderProfileChangeStatus(): Promise<ProfileChangeStatus> {
+  const token = await getRiderToken();
+  if (!token) return { pending: null, lockedUntil: null };
+  const { data, error } = await callBackend(
+    'rider-profile',
+    { action: 'get_profile_change_status' },
+    { token },
+  );
+  if (error || !data?.ok) {
+    return { pending: null, lockedUntil: null };
+  }
+  return {
+    pending: (data.pending as RiderProfileChangeRequest | null) ?? null,
+    lockedUntil: (data.lockedUntil as string | null) ?? null,
+  };
 }
 
 /** Mark the onboarding application as submitted for admin review. */

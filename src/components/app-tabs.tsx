@@ -7,8 +7,11 @@ import {
     TabTrigger,
     TabTriggerSlotProps,
 } from 'expo-router/ui';
+import { forwardRef } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { useOnlineStatus } from '@/hooks/use-online-status';
 
 const COLORS = {
   surface: '#ffffff',
@@ -17,6 +20,7 @@ const COLORS = {
   primaryContainer: '#fbd103',
   onPrimaryContainer: '#6d5a00',
   outlineVariant: '#d0c6ab',
+  disabled: '#c5c5c5',
 };
 
 const FOOTER_HEIGHT = 76;
@@ -31,7 +35,11 @@ const ICONS: Record<TabName, keyof typeof MaterialIcons.glyphMap> = {
   profile: 'person',
 };
 
+const OFFLINE_DISABLED_TABS: TabName[] = ['explore', 'earnings', 'help'];
+
 export default function AppTabs() {
+  const { online } = useOnlineStatus();
+
   return (
     <Tabs>
       <TabSlot style={styles.slot} />
@@ -41,13 +49,13 @@ export default function AppTabs() {
             <TabButton icon="home">Home</TabButton>
           </TabTrigger>
           <TabTrigger name="explore" href="/explore" asChild>
-            <TabButton icon="explore">Jobs</TabButton>
+            <TabButton icon="explore" disabled={!online && OFFLINE_DISABLED_TABS.includes('explore')}>Jobs</TabButton>
           </TabTrigger>
           <TabTrigger name="earnings" href="/earnings" asChild>
-            <TabButton icon="earnings">Earnings</TabButton>
+            <TabButton icon="earnings" disabled={!online && OFFLINE_DISABLED_TABS.includes('earnings')}>Earnings</TabButton>
           </TabTrigger>
           <TabTrigger name="help" href="/help" asChild>
-            <TabButton icon="help">Help</TabButton>
+            <TabButton icon="help" disabled={!online && OFFLINE_DISABLED_TABS.includes('help')}>Help</TabButton>
           </TabTrigger>
           <TabTrigger name="profile" href="/profile" asChild>
             <TabButton icon="profile">Profile</TabButton>
@@ -58,28 +66,42 @@ export default function AppTabs() {
   );
 }
 
-type TabButtonProps = TabTriggerSlotProps & { icon: TabName };
+type TabButtonProps = TabTriggerSlotProps & { icon: TabName; disabled?: boolean };
 
-export function TabButton({ children, isFocused, icon, ...props }: TabButtonProps) {
-  return (
-    <Pressable
-      {...props}
-      style={({ pressed }) => [styles.tabButton, pressed && styles.pressed]}
-      accessibilityRole="tab"
-      accessibilityState={{ selected: isFocused }}>
-      <View style={[styles.iconPill, isFocused && styles.iconPillActive]}>
-        <MaterialIcons
-          name={ICONS[icon]}
-          size={24}
-          color={isFocused ? COLORS.onPrimaryContainer : COLORS.secondary}
-        />
-      </View>
-      <Text style={[styles.label, isFocused ? styles.labelActive : styles.labelInactive]}>
-        {children}
-      </Text>
-    </Pressable>
-  );
-}
+export const TabButton = forwardRef<View, TabButtonProps>(
+  function TabButton({ children, isFocused, icon, disabled, ...props }, ref) {
+    const isDisabled = disabled ?? false;
+
+    return (
+      <Pressable
+        {...props}
+        ref={ref}
+        disabled={isDisabled}
+        style={({ pressed }) => [
+          styles.tabButton,
+          pressed && !isDisabled && styles.pressed,
+          isDisabled && styles.tabButtonDisabled,
+        ]}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: isFocused, disabled: isDisabled }}>
+        <View style={[styles.iconPill, isFocused && !isDisabled && styles.iconPillActive]}>
+          <MaterialIcons
+            name={ICONS[icon]}
+            size={24}
+            color={isDisabled ? COLORS.disabled : isFocused ? COLORS.onPrimaryContainer : COLORS.secondary}
+          />
+        </View>
+        <Text
+          style={[
+            styles.label,
+            isDisabled ? styles.labelDisabled : isFocused ? styles.labelActive : styles.labelInactive,
+          ]}>
+          {children}
+        </Text>
+      </Pressable>
+    );
+  },
+);
 
 export function CustomTabList(props: TabListProps) {
   const insets = useSafeAreaInsets();
@@ -130,5 +152,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '600' },
   labelActive: { color: COLORS.onSurface },
   labelInactive: { color: COLORS.secondary },
+  labelDisabled: { color: COLORS.disabled },
+  tabButtonDisabled: { opacity: 0.5 },
   pressed: { opacity: 0.6 },
 });

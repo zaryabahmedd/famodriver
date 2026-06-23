@@ -48,6 +48,22 @@ export function riderEarning(price: number | null | undefined): number {
 }
 
 /**
+ * Rider's net earning for a completed delivery. Prefers the authoritative
+ * `net_amount` persisted by the backend at the delivered transition; falls back
+ * to computing it from the fare for older rows written before that column
+ * existed (or locally-cached optimistic entries that have no stored net).
+ */
+export function deliveryNetEarning(d: {
+  price: number | null;
+  net_amount?: number | null;
+}): number {
+  if (d.net_amount != null && !Number.isNaN(Number(d.net_amount))) {
+    return Math.round(Number(d.net_amount));
+  }
+  return riderEarning(d.price);
+}
+
+/**
  * Compute the delivery fare in Naira from a distance in metres using the
  * admin-configured base price + per-kilometre rate (see `usePricingSettings`).
  * Returns null when the distance or pricing is unknown.

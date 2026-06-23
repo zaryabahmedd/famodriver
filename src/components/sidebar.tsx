@@ -32,7 +32,7 @@ type NavItem = {
 
 const NAV: NavItem[] = [
   { icon: 'home', label: 'Home', active: true },
-  { icon: 'history', label: 'Job History' },
+  { icon: 'history', label: 'Ride History' },
   { icon: 'moped', label: 'Bike Details' },
   { icon: 'star', label: 'Reviews' },
 ];
