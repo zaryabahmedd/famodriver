@@ -8,7 +8,13 @@
     "scheme": "famo",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/icon.png"
+      "bundleIdentifier": "com.famo.rider",
+      "icon": "./assets/images/icon.png",
+      "infoPlist": {
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
+      }
     },
     "android": {
       "package": "com.famo.rider",
@@ -21,7 +27,11 @@
         "googleMaps": {
           "apiKey": "AIzaSyArKLk-HgW6rzHvL30UG70sux3FjepcSSI"
         }
-      }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "output": "static",
@@ -69,6 +79,12 @@
         "projectId": "8819559f-5d56-4c93-b634-8fc4c1451963"
       }
     },
-    "owner": "zaryabb"
+    "owner": "zaryabb",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8819559f-5d56-4c93-b634-8fc4c1451963"
+    }
   }
 }
