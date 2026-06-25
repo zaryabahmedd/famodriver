@@ -193,7 +193,6 @@ export function Earnings() {
         <Text style={styles.brand}>FAMO</Text>
         <Pressable onPress={() => setNotificationsOpen(true)} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Notifications">
           <MaterialIcons name="notifications" size={24} color={COLORS.onSurface} />
-          <View style={styles.badge} />
         </Pressable>
       </View>
 
@@ -313,17 +312,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brand: { fontSize: 18, fontWeight: '800', letterSpacing: 1, color: COLORS.onSurface },
-  badge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.error,
-    borderWidth: 1,
-    borderColor: COLORS.surface,
-  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 20,

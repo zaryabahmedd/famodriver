@@ -143,26 +143,31 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
     setStarting(true);
     setError(null);
     try {
-      let lat = 6.5244;
-      let lng = 3.3792;
-      let hasRealLocation = false;
+      // A real GPS fix is required to go online. We never broadcast a
+      // placeholder location, so customers only ever see the rider's true
+      // position — going online simply fails if we can't locate the device.
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+        setError('Location permission is required to go online.');
+        setStarting(false);
+        return false;
+      }
+      setPermissionDenied(false);
 
+      let lat: number;
+      let lng: number;
       try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          setPermissionDenied(false);
-          const first = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
-          lat = first.coords.latitude;
-          lng = first.coords.longitude;
-          hasRealLocation = true;
-        } else {
-          setPermissionDenied(true);
-          console.warn('[use-rider-location] Location permission denied. Falling back to simulated coordinates.');
-        }
+        const first = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        lat = first.coords.latitude;
+        lng = first.coords.longitude;
       } catch (locErr) {
-        console.warn('[use-rider-location] Failed to fetch device location. Falling back to simulated coordinates. Error:', locErr);
+        console.warn('[use-rider-location] Could not get a GPS fix.', locErr);
+        setError('Could not get your location. Make sure GPS is on and try again.');
+        setStarting(false);
+        return false;
       }
 
       setCoords({ lat, lng });
@@ -172,30 +177,17 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
       });
 
       stopWatcher();
-
-      if (hasRealLocation) {
-        watcher.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: WRITE_INTERVAL_MS,
-            distanceInterval: 20,
-          },
-          (loc) => {
-            setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
-            void writeLocation(loc.coords.latitude, loc.coords.longitude);
-          },
-        );
-      } else {
-        const intervalId = setInterval(() => {
-          if (lastCoords.current) {
-            void writeLocation(lastCoords.current.lat, lastCoords.current.lng);
-          }
-        }, WRITE_INTERVAL_MS);
-
-        watcher.current = {
-          remove: () => clearInterval(intervalId),
-        };
-      }
+      watcher.current = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: WRITE_INTERVAL_MS,
+          distanceInterval: 20,
+        },
+        (loc) => {
+          setCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+          void writeLocation(loc.coords.latitude, loc.coords.longitude);
+        },
+      );
 
       setOnline(true);
       setStarting(false);

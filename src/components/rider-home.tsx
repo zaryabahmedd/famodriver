@@ -33,6 +33,7 @@ import { useRiderJobs } from '@/hooks/use-rider-jobs';
 import { useOnlineStatus } from '@/hooks/use-online-status';
 import { useRiderLocation } from '@/hooks/use-rider-location';
 import { usePushNotifications } from '@/hooks/use-push-notifications';
+import { formatWorkingTime, useWorkingTime } from '@/hooks/use-working-time';
 
 type JobPhase = 'pickup' | 'verify' | 'transit' | 'payment' | 'complete' | 'completed' | null;
 const JOB_PHASE_KEY = 'famo.jobPhase';
@@ -74,9 +75,9 @@ function deliveredToday(deliveries: CompletedDelivery[]): CompletedDelivery[] {
 }
 
 /** "Today's Activity" stat cards built from this rider's real completed jobs.
- *  There's no backend tracking of online/shift duration, so working time is
- *  approximated as one hour per completed delivery (per product direction). */
-function buildTodayStats(deliveries: CompletedDelivery[]): Stat[] {
+ *  Working time is the rider's real accumulated online seconds for today
+ *  (see useWorkingTime); the other figures come straight from completed jobs. */
+function buildTodayStats(deliveries: CompletedDelivery[], workingSeconds: number): Stat[] {
   const todays = deliveredToday(deliveries);
   const orders = todays.length;
   const earnings = todays.reduce((sum, d) => sum + deliveryNetEarning(d), 0);
@@ -87,7 +88,7 @@ function buildTodayStats(deliveries: CompletedDelivery[]): Stat[] {
   );
 
   return [
-    { icon: 'schedule', label: 'Working Time', value: `${orders}h 0m` },
+    { icon: 'schedule', label: 'Working Time', value: formatWorkingTime(workingSeconds) },
     { icon: 'straighten', label: 'Distance', value: formatKm(distanceMeters) },
     { icon: 'task-alt', label: 'Orders', value: String(orders) },
     { icon: 'payments', label: 'Earnings', value: formatPrice(earnings), highlight: true },
@@ -150,11 +151,16 @@ export function RiderHome() {
   const [vehicleOpen, setVehicleOpen] = useState(false);
   const tipText = useTypewriter(TIPS);
   const completedDeliveries = useCompletedDeliveries(riderId);
-  const todayStats = useMemo(() => buildTodayStats(completedDeliveries), [completedDeliveries]);
 
   const location = useRiderLocation({ riderId, activeDeliveryId });
   const online = location.online;
   const onlineStatus = useOnlineStatus();
+
+  const workingSeconds = useWorkingTime(online);
+  const todayStats = useMemo(
+    () => buildTodayStats(completedDeliveries, workingSeconds),
+    [completedDeliveries, workingSeconds],
+  );
 
   useEffect(() => {
     onlineStatus.setOnline(location.online);

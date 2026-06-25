@@ -1,7 +1,7 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RouteMap } from '@/components/route-map';
@@ -9,7 +9,6 @@ import { estimateMinutes, formatDuration, formatKm, haversineMeters, maneuverIco
 import type { Delivery } from '@/hooks/rider-api';
 import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
 import { useTurnByTurn } from '@/hooks/use-navigation';
-import { CallScreen } from './call-screen';
 import { Chat } from './chat';
 import { ChatBadge } from './chat-badge';
 
@@ -39,7 +38,6 @@ type InTransitProps = {
 export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransitProps) {
   const insets = useSafeAreaInsets();
   const [chatOpen, setChatOpen] = useState(false);
-  const [callOpen, setCallOpen] = useState(false);
   const { unread, markRead } = useUnreadDeliveryMessages(delivery?.id ?? null, 'rider');
 
   const openChat = () => {
@@ -57,6 +55,11 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
   const recipientPhone = delivery?.recipient_phone ?? delivery?.users?.phone_number ?? null;
   const dropoffNotes = delivery?.dropoff_notes?.trim() || null;
   const toDropoff = dropoff && riderCoords ? haversineMeters(riderCoords, dropoff) : null;
+
+  // Place a real call to the recipient via the device dialer.
+  const callRecipient = () => {
+    if (recipientPhone) Linking.openURL(`tel:${recipientPhone}`);
+  };
 
   // Live in-app turn-by-turn driven by the rider's GPS.
   const nav = useTurnByTurn(riderCoords ?? null, dropoff);
@@ -147,7 +150,12 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           </View>
 
           <View style={styles.actions}>
-            <Pressable onPress={() => setCallOpen(true)} style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Call">
+            <Pressable
+              onPress={callRecipient}
+              disabled={!recipientPhone}
+              style={[styles.actionBtn, !recipientPhone && styles.actionBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Call">
               <MaterialIcons name="call" size={22} color={COLORS.onSurface} />
             </Pressable>
             <Pressable onPress={openChat} style={styles.actionBtn} accessibilityRole="button" accessibilityLabel="Message">
@@ -180,11 +188,10 @@ export function InTransit({ onArrived, onBack, delivery, riderCoords }: InTransi
           onBack={closeChat}
           onCall={() => {
             closeChat();
-            setCallOpen(true);
+            callRecipient();
           }}
         />
       ) : null}
-      {callOpen ? <CallScreen onEnd={() => setCallOpen(false)} /> : null}
     </View>
   );
 }
@@ -338,6 +345,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
   },
+  actionBtnDisabled: { opacity: 0.4 },
   cta: {
     flexDirection: 'row',
     alignItems: 'center',

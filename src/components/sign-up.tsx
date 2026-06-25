@@ -1,9 +1,11 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+    Keyboard,
     KeyboardAvoidingView,
+    type LayoutChangeEvent,
     Platform,
     Pressable,
     ScrollView,
@@ -80,6 +82,48 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
   const [agreed, setAgreed] = useState(false);
   const [focused, setFocused] = useState<string | null>(null);
 
+  // Auto-scroll the focused field into view so the keyboard never covers it
+  // (notably the bottom-most Password field). We record each field's Y offset
+  // within the scroll content via onLayout, then scroll to the focused field
+  // once the keyboard has actually appeared (keyboardDidShow), so the layout is
+  // already adjusted when we scroll.
+  const scrollRef = useRef<ScrollView>(null);
+  const formY = useRef(0);
+  const fieldY = useRef<Record<string, number>>({});
+  const focusedKey = useRef<string | null>(null);
+
+  const handleFormLayout = (e: LayoutChangeEvent) => {
+    formY.current = e.nativeEvent.layout.y;
+  };
+
+  const handleFieldLayout = (key: string) => (e: LayoutChangeEvent) => {
+    fieldY.current[key] = e.nativeEvent.layout.y;
+  };
+
+  const scrollFocusedIntoView = () => {
+    const key = focusedKey.current;
+    if (!key) return;
+    const y = fieldY.current[key];
+    if (y == null) return;
+    // fieldY is relative to the form; add the form's offset within the scroll
+    // content to get an absolute scroll position. 24px keeps the label visible.
+    scrollRef.current?.scrollTo({ y: Math.max(0, formY.current + y - 24), animated: true });
+  };
+
+  const handleFieldFocus = (key: string) => {
+    setFocused(key);
+    focusedKey.current = key;
+    // If the keyboard is already open (switching between fields), scroll now —
+    // keyboardDidShow won't fire again.
+    setTimeout(scrollFocusedIntoView, 50);
+  };
+
+  // Scroll the focused field up once the keyboard finishes opening.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', scrollFocusedIntoView);
+    return () => sub.remove();
+  }, []);
+
   const handleContinue = () => {
     if (!values.name || !values.email || !values.phone || !values.password) {
       alert('Please fill in all fields.');
@@ -116,8 +160,12 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        behavior="padding">
+        {/* "padding" works in edge-to-edge mode (SDK 54 default) on both
+            platforms, since it derives keyboard height from the keyboard's own
+            coordinates rather than a window resize that edge-to-edge disables. */}
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
             { paddingBottom: insets.bottom + 24 },
@@ -141,9 +189,9 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
           </View>
 
           {/* Form */}
-          <View style={styles.form}>
+          <View style={styles.form} onLayout={handleFormLayout}>
             {FIELDS.map((field) => (
-              <View key={field.key} style={styles.fieldGroup}>
+              <View key={field.key} style={styles.fieldGroup} onLayout={handleFieldLayout(field.key)}>
                 <Text style={styles.label}>{field.label}</Text>
                 <View
                   style={[
@@ -161,7 +209,7 @@ export function SignUp({ onContinue, onBack, onLogIn }: SignUpProps) {
                     onChangeText={(text) =>
                       setValues((prev) => ({ ...prev, [field.key]: text }))
                     }
-                    onFocus={() => setFocused(field.key)}
+                    onFocus={() => handleFieldFocus(field.key)}
                     onBlur={() => setFocused(null)}
                     placeholder={field.placeholder}
                     placeholderTextColor={COLORS.outline}

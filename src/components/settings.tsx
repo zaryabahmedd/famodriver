@@ -1,4 +1,5 @@
 import { MaterialIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
 import { useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -128,7 +129,7 @@ export function Settings({ onBack, onLogout }: SettingsProps) {
           <MaterialIcons name="logout" size={20} color={COLORS.error} />
           <Text style={styles.logoutText}>Logout</Text>
         </Pressable>
-        <Text style={styles.version}>Version 4.12.0</Text>
+        <Text style={styles.version}>Version {Constants.expoConfig?.version ?? '1.0.0'}</Text>
       </ScrollView>
 
       {confirmLogout && (

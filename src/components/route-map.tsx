@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Platform, StyleSheet, View } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from 'react-native-maps';
+
+// Google Maps on Android (the Android default + our API key); Apple Maps on
+// iOS via the default provider. Apple Maps needs no API key, billing, or Google
+// Cloud "Maps SDK for iOS" setup, so the map renders reliably on iOS out of the
+// box. Our custom route polyline, markers and 3D follow-camera work on both.
+const MAP_PROVIDER = Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT;
 
 import { fetchDirections, haversineMeters, LatLng } from '@/hooks/maps';
 
@@ -138,7 +144,7 @@ export function RouteMap({
     <View style={[styles.container, style]}>
       <MapView
         ref={mapRef}
-        provider={PROVIDER_GOOGLE}
+        provider={MAP_PROVIDER}
         style={StyleSheet.absoluteFill}
         initialRegion={region}
         showsUserLocation={!!origin}

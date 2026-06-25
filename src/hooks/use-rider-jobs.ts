@@ -100,37 +100,6 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
   const pendingOfferRef = useRef<DeliveryOffer | null>(null);
   pendingOfferRef.current = pendingOffer;
 
-  useEffect(() => {
-    console.log('[use-rider-jobs] rider state', {
-      rider_id: riderId,
-      online,
-      matches_expected: riderId === 'bcb5441d-2ee0-4b24-afd0-6009eea3add5',
-    });
-  }, [riderId, online]);
-
-  // TEMPORARY DEBUG: unfiltered subscription to confirm whether ANY
-  // delivery_offers event reaches this client. If this fires but the filtered
-  // channel below does not, the rider_id filter is the mismatch.
-  useEffect(() => {
-    const testChannel = supabase
-      .channel('offers-test-all')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'delivery_offers' },
-        (payload) => {
-          console.log('[offers-test-all] payload', {
-            event: payload.eventType,
-            new: payload.new,
-          });
-        },
-      )
-      .subscribe((status, error) => {
-        console.log('[offers-test-all] offers channel status', status, error?.message);
-      });
-    return () => {
-      supabase.removeChannel(testChannel);
-    };
-  }, []);
 
   const clearPendingOffer = useCallback((source: string, offerId?: string) => {
     const current = pendingOfferRef.current;
