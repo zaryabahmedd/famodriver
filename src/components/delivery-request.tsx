@@ -1,8 +1,6 @@
-import { calculateFare, estimateMinutes, formatKm, formatPrice, haversineMeters, type LatLng } from '@/hooks/maps';
-import { usePricingSettings } from '@/hooks/pricing';
-import { formatPackageCategory, formatPackageSize, type Delivery, type DeliveryOffer } from '@/hooks/rider-api';
+import { estimateMinutes, formatKm, formatPrice, haversineMeters, type LatLng } from '@/hooks/maps';
+import { formatPackageCategory, type Delivery, type DeliveryOffer } from '@/hooks/rider-api';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -27,9 +25,6 @@ const COLORS = {
   track: '#efeded',
   mapBg: '#f3f4f6',
 };
-
-const PARCEL_URI =
-  'https://lh3.googleusercontent.com/aida-public/AB6AXuAzZG2Adh5_IBWt-HEP9k1oPXDRBhTl5LMN-uG9pvH94JlVIMib8F9B-P_6aTfc5qQzkUBtVt2hboCcZ2S-I01SYapOu_oAP9vIhCfeJDpnYldQdR5pgLbbxyrZd-vqPHD-WCzz1QPCPJl-E513g5-uS22SAocud2B4LlrsFgzRcPmyK_RY75AqrH7ORvIZO7B_INbBKE5VPQJoA3Jzl0227Q2ZvqJYbY0pA6Vrdg84SY7OMWZMReAaK4H2DfATGLS8QnIBNuZMOTA';
 
 const TOTAL_SECONDS = 35;
 
@@ -76,16 +71,12 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
         )
       : null;
   const awayMeters = offer?.distance_meters ?? null;
-  const pricing = usePricingSettings();
-  // Fare follows the admin-configured base + per-km rate over the pickup→drop-off distance.
-  const earnings = formatPrice(calculateFare(dropMeters, pricing) ?? delivery?.price);
+  const earnings = formatPrice(delivery?.price);
   const categoryLabel = formatPackageCategory(delivery?.package_category);
-  const sizeLabel = formatPackageSize(delivery?.package_size);
   const parcelLabel =
     categoryLabel ?? (delivery?.weight != null ? `${delivery.weight} kg` : 'Parcel');
   const chips: { icon?: 'inventory-2' | 'straighten' | 'scale'; label: string }[] = [
     { icon: 'inventory-2', label: parcelLabel },
-    ...(sizeLabel ? [{ icon: 'straighten' as const, label: sizeLabel }] : []),
     ...(categoryLabel && delivery?.weight != null
       ? [{ icon: 'scale' as const, label: `${delivery.weight} kg` }]
       : []),
@@ -179,7 +170,9 @@ export function DeliveryRequest({ onAccept, onDecline, offer, delivery }: Delive
           bounces={false}>
           {/* Banner */}
           <View style={styles.banner}>
-            <Image source={{ uri: PARCEL_URI }} style={styles.bannerImg} contentFit="cover" />
+            <View style={styles.bannerIcon}>
+              <MaterialIcons name="electric-bike" size={32} color={COLORS.onPrimaryContainer} />
+            </View>
             <View style={styles.bannerText}>
               <Text style={styles.bannerTitle}>New delivery request</Text>
               <Text style={styles.bannerSubtitle} numberOfLines={1}>
@@ -368,7 +361,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.outlineVariant,
   },
-  bannerImg: { width: 64, height: 48, borderRadius: 8, backgroundColor: COLORS.surfaceDim },
+  bannerIcon: {
+    width: 64,
+    height: 48,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primaryContainer,
+  },
   bannerText: { flex: 1 },
   bannerTitle: { fontSize: 20, lineHeight: 28, fontWeight: '700', color: COLORS.onSurface },
   bannerSubtitle: { fontSize: 14, color: COLORS.onSurfaceVariant, marginTop: 2 },

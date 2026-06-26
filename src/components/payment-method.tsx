@@ -80,13 +80,31 @@ export function PaymentMethod({ onContinue, onBack, delivery }: PaymentMethodPro
 
         {isCod ? (
           <View style={[styles.card, styles.cardCod]}>
-            <View style={[styles.cardIcon, styles.cardIconCod]}>
-              <MaterialIcons name="payments" size={28} color="#000000" />
+            <View style={styles.cardHeaderRow}>
+              <View style={[styles.cardIcon, styles.cardIconCod]}>
+                <MaterialIcons name="payments" size={26} color="#000000" />
+              </View>
+              <View style={styles.cardHeaderText}>
+                <Text style={styles.codBadge}>CASH ON DELIVERY</Text>
+                <Text style={styles.cardTitle}>Collect payment from receiver</Text>
+              </View>
             </View>
-            <Text style={styles.cardTitle}>COD selected by the user</Text>
-            <Text style={styles.cardHint}>
-              The user has selected Cash on Delivery (COD) — take payment of {delivery?.price != null ? `₦${Math.round(Number(delivery.price)).toLocaleString()}` : 'the order amount'} from the package receiver before confirming the delivery.
-            </Text>
+
+            <View style={styles.amountBox}>
+              <Text style={styles.amountLabel}>Amount to collect</Text>
+              <Text style={styles.amountValue}>
+                {delivery?.price != null
+                  ? `₦${Math.round(Number(delivery.price)).toLocaleString()}`
+                  : '—'}
+              </Text>
+            </View>
+
+            <View style={styles.codNote}>
+              <MaterialIcons name="info-outline" size={18} color={COLORS.gray500} />
+              <Text style={styles.codNoteText}>
+                Take this amount in cash from the package receiver before confirming the delivery.
+              </Text>
+            </View>
           </View>
         ) : isBankTransfer ? (
           <View style={styles.bankBlock}>
@@ -223,7 +241,43 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 2,
   },
-  cardCod: { borderColor: COLORS.primaryContainer, backgroundColor: 'rgba(251,209,3,0.06)' },
+  cardCod: { borderColor: COLORS.primaryContainer, backgroundColor: COLORS.surfaceLowest },
+  cardHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  cardHeaderText: { flex: 1, gap: 4 },
+  codBadge: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: COLORS.gray400,
+  },
+  amountBox: {
+    width: '100%',
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(251,209,3,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(251,209,3,0.4)',
+  },
+  amountLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: COLORS.gray500,
+  },
+  amountValue: { fontSize: 34, fontWeight: '800', letterSpacing: -1, color: COLORS.gray900 },
+  codNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: COLORS.gray100,
+  },
+  codNoteText: { flex: 1, fontSize: 13, fontWeight: '500', color: COLORS.gray500, lineHeight: 19 },
   cardBank: { borderColor: COLORS.positive, backgroundColor: COLORS.positiveContainer },
   bankBlock: { gap: 12 },
   cardUnknown: {},

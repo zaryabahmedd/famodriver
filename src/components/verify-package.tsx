@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { formatPackageCategory, formatPackageSize, type Delivery } from '@/hooks/rider-api';
+import { formatPackageCategory, type Delivery } from '@/hooks/rider-api';
 import { useUnreadDeliveryMessages } from '@/hooks/use-delivery-chat';
 
 import { Chat } from './chat';
@@ -85,7 +85,6 @@ export function VerifyPackage({ onContinue, onBack, delivery }: VerifyPackagePro
   const weightLabel = delivery?.weight != null ? `${delivery.weight} kg` : '—';
   const rows: Row[] = [
     { label: 'Type', value: formatPackageCategory(delivery?.package_category) ?? '—' },
-    { label: 'Size', value: formatPackageSize(delivery?.package_size) ?? '—' },
     { label: 'Weight', value: weightLabel },
   ];
   const description = delivery?.package_description?.trim() || null;
