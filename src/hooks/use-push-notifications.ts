@@ -1,12 +1,26 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
+import type * as NotificationsModule from 'expo-notifications';
 import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { callBackend } from './backend-client';
 import { getRiderToken } from './rider-session';
+
+// expo-notifications ships native code. On a dev client built BEFORE it was
+// added, a static `import ... from 'expo-notifications'` throws at load and
+// crashes the app. Load it at runtime and null it out if the native module is
+// absent; every use below is guarded, so the app simply runs without push
+// (foreground offer polling still works) instead of crashing. The `import type`
+// above is erased at compile time, so it never touches the native module.
+const Notifications: typeof import('expo-notifications') | null = (() => {
+  try {
+    return require('expo-notifications') as typeof import('expo-notifications');
+  } catch {
+    return null;
+  }
+})();
 
 const PUSH_TOKEN_KEY = 'famo.pushToken';
 const OFFER_CHANNEL_ID = 'delivery-offers';
@@ -15,6 +29,7 @@ const CHAT_CHANNEL_ID = 'chat-messages';
 const TAG = '[push]';
 
 function hasNativePushModule(): boolean {
+  if (!Notifications) return false;
   try {
     if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
       return false;
@@ -25,7 +40,7 @@ function hasNativePushModule(): boolean {
   return true;
 }
 
-Notifications.setNotificationHandler({
+Notifications?.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowBanner: true,
     shouldShowList: true,
@@ -35,7 +50,7 @@ Notifications.setNotificationHandler({
 });
 
 async function ensureAndroidChannels(): Promise<void> {
-  if (Platform.OS !== 'android') return;
+  if (Platform.OS !== 'android' || !Notifications) return;
   await Notifications.setNotificationChannelAsync(OFFER_CHANNEL_ID, {
     name: 'Delivery requests',
     importance: Notifications.AndroidImportance.HIGH,
@@ -55,14 +70,14 @@ async function ensureAndroidChannels(): Promise<void> {
 async function registerPushToken(riderId: string): Promise<void> {
   console.log(TAG, 'registration starting', { rider_id: riderId, platform: Platform.OS });
 
-  if (!hasNativePushModule()) {
-    console.log(TAG, 'skipping — no native push module (Expo Go)');
+  if (!hasNativePushModule() || !Notifications) {
+    console.log(TAG, 'skipping — no native push module (Expo Go or stale dev build)');
     return;
   }
   console.log(TAG, 'step 1/6 — native module present');
 
   // Step 2: permissions
-  let status: Notifications.PermissionStatus;
+  let status: NotificationsModule.PermissionStatus;
   try {
     const { status: existing } = await Notifications.getPermissionsAsync();
     status = existing;
@@ -166,7 +181,8 @@ export function usePushNotifications(riderId: string | null): void {
   }, [riderId]);
 
   useEffect(() => {
-    if (!hasNativePushModule()) return;
+    if (!hasNativePushModule() || !Notifications) return;
+    const Notif = Notifications;
 
     const handleResponse = (data: Record<string, unknown> | undefined | null) => {
       if (isOfferNotification(data)) {
@@ -178,15 +194,15 @@ export function usePushNotifications(riderId: string | null): void {
       }
     };
 
-    void Notifications.getLastNotificationResponseAsync().then((response) => {
+    void Notif.getLastNotificationResponseAsync().then((response) => {
       if (!response) return;
       handleResponse(response.notification.request.content.data as Record<string, unknown>);
-      void Notifications.clearLastNotificationResponseAsync();
+      void Notif.clearLastNotificationResponseAsync();
     });
 
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+    const sub = Notif.addNotificationResponseReceivedListener((response) => {
       handleResponse(response.notification.request.content.data as Record<string, unknown>);
-      void Notifications.clearLastNotificationResponseAsync();
+      void Notif.clearLastNotificationResponseAsync();
     });
 
     return () => sub.remove();

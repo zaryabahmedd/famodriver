@@ -1,19 +1,29 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 import { Platform } from 'react-native';
 
 // The rider id is not a secret (it's a public uuid) so it can live in
 // AsyncStorage. The session token IS a bearer credential, so on native it goes
-// into the OS keystore via expo-secure-store. SecureStore has no web backend,
-// so on web we fall back to AsyncStorage.
+// into the OS keystore via expo-secure-store.
+//
+// expo-secure-store ships native code. On a dev client that was built BEFORE
+// this dependency was added — or on web — the native module isn't present, and
+// a static `import ... from 'expo-secure-store'` would throw at module load and
+// crash the whole app on boot. So we load it only when the native module is
+// actually available and fall back to AsyncStorage otherwise. A proper build
+// still keeps the token in the OS keystore; the fallback only kicks in where no
+// keystore exists (web, or a stale dev build missing the module).
+const SecureStore: typeof import('expo-secure-store') | null =
+  Platform.OS !== 'web' && requireOptionalNativeModule('ExpoSecureStore')
+    ? require('expo-secure-store')
+    : null;
+
 const RIDER_ID_KEY = 'famo.riderId';
 const TOKEN_KEY = 'famo.riderToken';
 const TOKEN_EXP_KEY = 'famo.riderTokenExp';
 
-const isWeb = Platform.OS === 'web';
-
 async function secureSet(key: string, value: string): Promise<void> {
-  if (isWeb) {
+  if (!SecureStore) {
     await AsyncStorage.setItem(key, value);
     return;
   }
@@ -21,12 +31,12 @@ async function secureSet(key: string, value: string): Promise<void> {
 }
 
 async function secureGet(key: string): Promise<string | null> {
-  if (isWeb) return AsyncStorage.getItem(key);
+  if (!SecureStore) return AsyncStorage.getItem(key);
   return SecureStore.getItemAsync(key);
 }
 
 async function secureDelete(key: string): Promise<void> {
-  if (isWeb) {
+  if (!SecureStore) {
     await AsyncStorage.removeItem(key);
     return;
   }

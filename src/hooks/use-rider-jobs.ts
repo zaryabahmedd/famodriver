@@ -18,13 +18,19 @@ type Options = {
   online: boolean;
 };
 
+/** A live offer paired with its (best-effort) delivery detail. */
+export type PendingOffer = {
+  offer: DeliveryOffer;
+  delivery: Delivery | null;
+};
+
 export type RiderJobs = {
-  pendingOffer: DeliveryOffer | null;
-  offerDelivery: Delivery | null;
+  /** All live pending offers for this rider (a rider can hold several at once). */
+  offers: PendingOffer[];
   activeDelivery: Delivery | null;
   busy: boolean;
-  acceptOffer: () => Promise<boolean>;
-  declineOffer: () => Promise<void>;
+  acceptOffer: (offerId: string) => Promise<boolean>;
+  declineOffer: (offerId: string) => Promise<void>;
   markPickedUp: () => Promise<boolean>;
   markDelivered: () => Promise<boolean>;
   cancelActiveDelivery: () => Promise<boolean>;
@@ -34,7 +40,6 @@ export type RiderJobs = {
    * back to the Home screen.
    */
   externalCancelTick: number;
-  dismissOffer: () => void;
   finishJob: () => void;
 };
 
@@ -45,8 +50,8 @@ function isLivePendingOffer(offer: DeliveryOffer): boolean {
 /**
  * Resolve a usable delivery_offers id for a response. The realtime payload that
  * surfaced the offer can arrive column-stripped under RLS (no `id`), so fall
- * back to reading the rider's live pending offer straight from the table, which
- * always includes the primary key.
+ * back to reading the rider's live pending offers straight from the table, which
+ * always include the primary key.
  */
 async function resolveOfferId(
   offer: DeliveryOffer,
@@ -55,17 +60,21 @@ async function resolveOfferId(
   if (offer.id) return offer.id;
   const { data, error } = await supabase
     .from('delivery_offers')
-    .select('id')
+    .select('id, delivery_id')
     .eq('rider_id', riderId)
     .eq('status', 'pending')
     .gt('expires_at', new Date().toISOString())
-    .order('expires_at', { ascending: true })
-    .limit(1);
+    .order('expires_at', { ascending: true });
   if (error) {
     console.warn('[use-rider-jobs] resolveOfferId failed', { riderId, error: error.message });
     return null;
   }
-  return (data?.[0] as { id: string } | undefined)?.id ?? null;
+  // Match on delivery_id when we have one; otherwise take the soonest-expiring.
+  const rows = (data ?? []) as { id: string; delivery_id: string }[];
+  const match = offer.delivery_id
+    ? rows.find((r) => r.delivery_id === offer.delivery_id)
+    : rows[0];
+  return match?.id ?? rows[0]?.id ?? null;
 }
 
 function loggableOffer(offer: DeliveryOffer) {
@@ -84,12 +93,12 @@ function sleep(ms: number): Promise<void> {
 
 /**
  * Subscribes to delivery_offers for this rider over Supabase Realtime, surfaces
- * the current pending offer, and exposes accept/decline + status-advance actions
- * (all routed through service-role Edge Functions).
+ * every live pending offer (a rider may receive several requests at once), and
+ * exposes per-offer accept/decline + status-advance actions (all routed through
+ * service-role Edge Functions).
  */
 export function useRiderJobs({ riderId, online }: Options): RiderJobs {
-  const [pendingOffer, setPendingOffer] = useState<DeliveryOffer | null>(null);
-  const [offerDelivery, setOfferDelivery] = useState<Delivery | null>(null);
+  const [offers, setOffers] = useState<PendingOffer[]>([]);
   const [activeDelivery, setActiveDelivery] = useState<Delivery | null>(null);
   const [externalCancelTick, setExternalCancelTick] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -97,94 +106,34 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
   const activeRef = useRef<Delivery | null>(null);
   activeRef.current = activeDelivery;
 
-  const pendingOfferRef = useRef<DeliveryOffer | null>(null);
-  pendingOfferRef.current = pendingOffer;
+  const offersRef = useRef<PendingOffer[]>(offers);
+  offersRef.current = offers;
 
-
-  const clearPendingOffer = useCallback((source: string, offerId?: string) => {
-    const current = pendingOfferRef.current;
-    if (offerId && current && current.id !== offerId) return;
-    if (current) {
-      console.log('[use-rider-jobs] clearing pending offer', {
-        source,
-        rider_id: riderId,
-        offer_id: current.id,
-      });
-    }
-    setPendingOffer(null);
-    setOfferDelivery(null);
-  }, [riderId]);
-
-  const showPendingOffer = useCallback(
-    async (offer: DeliveryOffer, source: string) => {
-      console.log('[use-rider-jobs] pending offer candidate', {
-        source,
-        offer: loggableOffer(offer),
-      });
-
-      if (!isLivePendingOffer(offer)) {
-        clearPendingOffer(source, offer.id);
+  // Pull every live pending offer for this rider, attaching each one's delivery
+  // detail. Already-loaded deliveries are reused so we don't refetch them on
+  // every poll. Offers are ignored entirely while a job is in progress.
+  const fetchCurrentPendingOffers = useCallback(
+    async (source: string) => {
+      if (!riderId || !online) {
+        console.log('[use-rider-jobs] skip pending offer fetch', { source, rider_id: riderId, online });
         return;
       }
 
       if (activeRef.current) {
-        console.log('[use-rider-jobs] ignoring offer while active delivery exists', {
-          source,
-          rider_id: riderId,
-          offer_id: offer.id,
-          active_delivery_id: activeRef.current.id,
-        });
+        if (offersRef.current.length) setOffers([]);
         return;
       }
 
-      // Surface the offer immediately. The delivery detail is best-effort:
-      // if the backend lookup fails the rider can still see and respond to the
-      // offer (DeliveryRequest renders fallbacks for a null delivery).
-      const delivery = await fetchOfferDelivery(offer.id);
-      if (!delivery) {
-        console.warn('[use-rider-jobs] pending offer delivery fetch returned empty; showing anyway', {
-          source,
-          rider_id: riderId,
-          offer_id: offer.id,
-          delivery_id: offer.delivery_id,
-        });
-      }
-
-      console.log('[use-rider-jobs] showing pending offer', {
-        source,
-        rider_id: riderId,
-        offer_id: offer.id,
-        delivery_id: delivery?.id ?? null,
-      });
-      setPendingOffer(offer);
-      setOfferDelivery(delivery);
-    },
-    [clearPendingOffer, riderId],
-  );
-
-  const fetchCurrentPendingOffer = useCallback(
-    async (source: string) => {
-      if (!riderId || !online) {
-        console.log('[use-rider-jobs] skip pending offer fetch', {
-          source,
-          rider_id: riderId,
-          online,
-        });
-        return;
-      }
-
-      console.log('[use-rider-jobs] fetching pending offers', { source, rider_id: riderId });
       const { data, error } = await supabase
         .from('delivery_offers')
         .select('*')
         .eq('rider_id', riderId)
         .eq('status', 'pending')
         .gt('expires_at', new Date().toISOString())
-        .order('expires_at', { ascending: true })
-        .limit(1);
+        .order('expires_at', { ascending: true });
 
       if (error) {
-        console.warn('[use-rider-jobs] pending offer fetch failed', {
+        console.warn('[use-rider-jobs] pending offers fetch failed', {
           source,
           rider_id: riderId,
           error: error.message,
@@ -192,28 +141,41 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
         return;
       }
 
-      const rows = (data ?? []) as DeliveryOffer[];
+      const live = ((data ?? []) as DeliveryOffer[]).filter(isLivePendingOffer);
       console.log('[use-rider-jobs] pending offer rows', {
         source,
         rider_id: riderId,
-        count: rows.length,
-        rows: rows.map(loggableOffer),
+        count: live.length,
+        rows: live.map(loggableOffer),
       });
 
-      if (rows[0]) {
-        await showPendingOffer(rows[0], source);
+      if (live.length === 0) {
+        if (offersRef.current.length) setOffers([]);
         return;
       }
 
-      // No live pending offer for this rider in the database. Clear any card
-      // still on screen. We intentionally do NOT gate on isLivePendingOffer
-      // here: a column-stripped realtime payload can leave a stale local offer
-      // whose status still reads 'pending', which would otherwise never clear.
-      if (pendingOfferRef.current) {
-        clearPendingOffer(source);
+      // Reuse deliveries we already fetched; only look up newly-arrived offers.
+      const known = new Map(offersRef.current.map((p) => [p.offer.id, p.delivery]));
+      const result: PendingOffer[] = [];
+      for (const offer of live) {
+        if (known.has(offer.id)) {
+          result.push({ offer, delivery: known.get(offer.id) ?? null });
+          continue;
+        }
+        const delivery = await fetchOfferDelivery(offer.id);
+        if (!delivery) {
+          console.warn('[use-rider-jobs] offer delivery fetch empty; showing anyway', {
+            source,
+            rider_id: riderId,
+            offer_id: offer.id,
+            delivery_id: offer.delivery_id,
+          });
+        }
+        result.push({ offer, delivery });
       }
+      setOffers(result);
     },
-    [clearPendingOffer, online, riderId, showPendingOffer],
+    [online, riderId],
   );
 
   // Resume an in-progress job after an app restart.
@@ -238,46 +200,44 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchCurrentPendingOffer('screen_focus');
-    }, [fetchCurrentPendingOffer]),
+      void fetchCurrentPendingOffers('screen_focus');
+    }, [fetchCurrentPendingOffers]),
   );
 
   // Realtime websockets are suspended while the app is backgrounded, so any
   // delivery_offers INSERT that arrives in that window is missed. When the app
-  // returns to the foreground, re-fetch the current pending offer. (navigation
+  // returns to the foreground, re-fetch the current pending offers. (navigation
   // useFocusEffect does NOT fire on background->active transitions.)
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') {
-        console.log('[use-rider-jobs] app became active, refetching offers', {
-          rider_id: riderId,
-        });
-        void fetchCurrentPendingOffer('app_active');
+        console.log('[use-rider-jobs] app became active, refetching offers', { rider_id: riderId });
+        void fetchCurrentPendingOffers('app_active');
       }
     });
     return () => sub.remove();
-  }, [fetchCurrentPendingOffer, riderId]);
+  }, [fetchCurrentPendingOffers, riderId]);
 
-  // Safety-net poll: while online with no active job, re-check for a pending
-  // offer every few seconds in case a realtime event was dropped (transient
-  // socket loss, reconnect gap, etc.). The 35s offer window comfortably covers
-  // an 8s poll.
+  // Safety-net poll: while online with no active job, re-check for pending
+  // offers every few seconds in case a realtime event was dropped (transient
+  // socket loss, reconnect gap, etc.). This also prunes offers that have expired
+  // and surfaces newly-arrived ones.
   useEffect(() => {
     if (!riderId || !online) return;
     const id = setInterval(() => {
-      if (!pendingOfferRef.current && !activeRef.current) {
-        void fetchCurrentPendingOffer('poll');
+      if (!activeRef.current) {
+        void fetchCurrentPendingOffers('poll');
       }
     }, 8000);
     return () => clearInterval(id);
-  }, [fetchCurrentPendingOffer, online, riderId]);
+  }, [fetchCurrentPendingOffers, online, riderId]);
 
   // Listen for incoming offers while online and not already on a job.
   useEffect(() => {
     if (!riderId || !online) return;
 
     console.log('[use-rider-jobs] subscribing to delivery_offers', { rider_id: riderId });
-    void fetchCurrentPendingOffer('subscription_start');
+    void fetchCurrentPendingOffers('subscription_start');
 
     const channel = supabase
       .channel(`rider-offers:${riderId}`)
@@ -296,11 +256,10 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
             offer_id: offer?.id ?? null,
           });
           // Treat the realtime event as a notification only. Under RLS the anon
-          // payload can arrive without its column data (notably no `id`), which
-          // previously surfaced an offer the rider could not accept (the POST
-          // carried an empty offerId). Re-read the authoritative pending row
-          // (select *) so the offer always carries its real id.
-          await fetchCurrentPendingOffer('realtime_insert');
+          // payload can arrive without its column data (notably no `id`); re-read
+          // the authoritative pending rows (select *) so each offer carries its
+          // real id and delivery detail.
+          await fetchCurrentPendingOffers('realtime_insert');
         },
       )
       .on(
@@ -319,9 +278,9 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
             offer_status: offer?.status ?? null,
           });
 
-          // Phase 4: the offer for our ACTIVE job just went terminal (the
-          // customer cancelled after we accepted). Kill the active job and
-          // signal the UI to return Home. (Guarded on offer.status existing so a
+          // The offer for our ACTIVE job just went terminal (the customer
+          // cancelled after we accepted). Kill the active job and signal the UI
+          // to return Home. (Guarded on offer.status existing so a
           // column-stripped payload can't false-trigger.)
           const active = activeRef.current;
           if (
@@ -341,10 +300,10 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
             return;
           }
 
-          // Re-read the authoritative pending row rather than trusting the
-          // (possibly column-stripped) payload. This surfaces a still-live offer
-          // with its real id and clears the card once it is no longer pending.
-          void fetchCurrentPendingOffer('realtime_update');
+          // Re-read the authoritative pending rows rather than trusting the
+          // (possibly column-stripped) payload. This surfaces still-live offers
+          // with real ids and drops any that are no longer pending.
+          void fetchCurrentPendingOffers('realtime_update');
         },
       )
       .subscribe((status, error) => {
@@ -359,93 +318,83 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
       console.log('[use-rider-jobs] removing delivery_offers subscription', { rider_id: riderId });
       supabase.removeChannel(channel);
     };
-  }, [clearPendingOffer, fetchCurrentPendingOffer, online, riderId, showPendingOffer]);
+  }, [fetchCurrentPendingOffers, online, riderId]);
 
-  const dismissOffer = useCallback(() => {
-    setPendingOffer(null);
-    setOfferDelivery(null);
-  }, []);
-
-  const acceptOffer = useCallback(async (): Promise<boolean> => {
-    if (!pendingOffer || !riderId || busy) return false;
-    setBusy(true);
-    try {
-      const offerId = await resolveOfferId(pendingOffer, riderId);
-      if (!offerId) {
-        console.warn('[use-rider-jobs] accept aborted: could not resolve offer id', {
+  const acceptOffer = useCallback(
+    async (offerId: string): Promise<boolean> => {
+      if (!offerId || !riderId || busy) return false;
+      setBusy(true);
+      try {
+        const entry = offersRef.current.find((p) => p.offer.id === offerId);
+        const resolvedId = entry ? (await resolveOfferId(entry.offer, riderId)) ?? offerId : offerId;
+        console.log('[use-rider-jobs] accepting offer', {
           rider_id: riderId,
+          offer_id: resolvedId,
+          delivery_id: entry?.offer.delivery_id ?? null,
         });
-        dismissOffer();
-        return false;
-      }
-      console.log('[use-rider-jobs] accepting offer', {
-        rider_id: riderId,
-        offer_id: offerId,
-        delivery_id: pendingOffer.delivery_id ?? null,
-      });
-      const res = await respondToOffer('accept', offerId);
-      if (res.ok) {
-        // Give the backend a brief window to persist the accepted job before
-        // hiding the request. If the job never materializes, keep the offer
-        // visible so the rider can retry instead of bouncing back to Home.
-        let active: Delivery | null = null;
-        for (let attempt = 0; attempt < 3 && !active; attempt += 1) {
-          active = await fetchActiveDelivery();
-          if (!active && attempt < 2) {
-            await sleep(300 * (attempt + 1));
+        const res = await respondToOffer('accept', resolvedId);
+        if (res.ok) {
+          // Give the backend a brief window to persist the accepted job before
+          // hiding the requests. If the job never materializes, keep the offers
+          // visible so the rider can retry instead of bouncing back to Home.
+          let active: Delivery | null = null;
+          for (let attempt = 0; attempt < 3 && !active; attempt += 1) {
+            active = await fetchActiveDelivery();
+            if (!active && attempt < 2) {
+              await sleep(300 * (attempt + 1));
+            }
           }
+          if (active) {
+            setActiveDelivery(active);
+            setOffers([]); // rider is now busy — drop every other request
+            return true;
+          }
+          console.warn('[use-rider-jobs] accept confirmed but active delivery not readable yet', {
+            rider_id: riderId,
+            offer_id: resolvedId,
+          });
+          await fetchCurrentPendingOffers('accept_pending');
+          return false;
         }
-        if (active) {
-          setActiveDelivery(active);
-          dismissOffer();
-          return true;
-        }
-        console.warn('[use-rider-jobs] accept confirmed but active delivery was not readable yet', {
+        // Offer was taken/expired before we responded.
+        console.warn('[use-rider-jobs] accept offer failed', {
           rider_id: riderId,
           offer_id: offerId,
+          error: res.error,
         });
-        await fetchCurrentPendingOffer('accept_pending');
+        await fetchCurrentPendingOffers('accept_failed');
         return false;
+      } finally {
+        setBusy(false);
       }
-      // Offer was taken/expired before we responded.
-      console.warn('[use-rider-jobs] accept offer failed', {
-        rider_id: riderId,
-        offer_id: pendingOffer.id,
-        error: res.error,
-      });
-      await fetchCurrentPendingOffer('accept_failed');
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }, [pendingOffer, riderId, busy, dismissOffer, fetchCurrentPendingOffer]);
+    },
+    [riderId, busy, fetchCurrentPendingOffers],
+  );
 
-  const declineOffer = useCallback(async () => {
-    const offer = pendingOffer;
-    dismissOffer();
-    if (offer && riderId) {
-      const offerId = await resolveOfferId(offer, riderId);
-      if (!offerId) {
-        console.warn('[use-rider-jobs] decline skipped: could not resolve offer id', {
-          rider_id: riderId,
-        });
-        return;
-      }
+  const declineOffer = useCallback(
+    async (offerId: string) => {
+      if (!offerId) return;
+      const entry = offersRef.current.find((p) => p.offer.id === offerId);
+      // Optimistically drop it from the list so the card disappears at once.
+      setOffers((prev) => prev.filter((p) => p.offer.id !== offerId));
+      if (!riderId) return;
+      const resolvedId = entry ? (await resolveOfferId(entry.offer, riderId)) ?? offerId : offerId;
       console.log('[use-rider-jobs] declining offer', {
         rider_id: riderId,
-        offer_id: offerId,
-        delivery_id: offer.delivery_id ?? null,
+        offer_id: resolvedId,
+        delivery_id: entry?.offer.delivery_id ?? null,
       });
-      const res = await respondToOffer('decline', offerId);
+      const res = await respondToOffer('decline', resolvedId);
       if (!res.ok) {
         console.warn('[use-rider-jobs] decline offer failed', {
           rider_id: riderId,
-          offer_id: offer.id,
+          offer_id: offerId,
           error: res.error,
         });
       }
-    }
-  }, [pendingOffer, riderId, dismissOffer]);
+    },
+    [riderId],
+  );
 
   const advance = useCallback(
     async (status: 'picked_up' | 'delivered'): Promise<boolean> => {
@@ -469,10 +418,10 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
   const markPickedUp = useCallback(() => advance('picked_up'), [advance]);
   const markDelivered = useCallback(() => advance('delivered'), [advance]);
 
-  // Phase 4: while a job is in progress, poll the backend so that if the
-  // customer cancels the delivery (it leaves the accepted/picked_up state) we
-  // detect the disappearance and kill the active job locally. A 'delivered'
-  // job is awaiting the completion screen and must not be poll-cleared.
+  // While a job is in progress, poll the backend so that if the customer cancels
+  // the delivery (it leaves the accepted/picked_up state) we detect the
+  // disappearance and kill the active job locally. A 'delivered' job is awaiting
+  // the completion screen and must not be poll-cleared.
   useEffect(() => {
     if (!riderId || !activeDelivery) return;
     if (activeDelivery.status === 'delivered') return;
@@ -498,8 +447,8 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
     return () => clearInterval(id);
   }, [riderId, activeDelivery]);
 
-  // Phase 3: cancel within the 1-minute grace. The backend enforces ownership
-  // and the grace window; on success the job is released to the next riders.
+  // Cancel within the 1-minute grace. The backend enforces ownership and the
+  // grace window; on success the job is released to the next riders.
   const cancelActiveDelivery = useCallback(async (): Promise<boolean> => {
     const delivery = activeRef.current;
     if (!delivery || !riderId || busy) return false;
@@ -530,8 +479,7 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
   }, []);
 
   return {
-    pendingOffer,
-    offerDelivery,
+    offers,
     activeDelivery,
     busy,
     acceptOffer,
@@ -540,7 +488,6 @@ export function useRiderJobs({ riderId, online }: Options): RiderJobs {
     markDelivered,
     cancelActiveDelivery,
     externalCancelTick,
-    dismissOffer,
     finishJob,
   };
 }

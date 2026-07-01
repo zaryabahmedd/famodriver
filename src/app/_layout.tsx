@@ -20,9 +20,14 @@ export default function TabLayout() {
   const [riderOnline, setRiderOnline] = useState(false);
   const [riderStarting, setRiderStarting] = useState(false);
   const [goOnlineFn, setGoOnlineFn] = useState<(() => Promise<boolean>) | null>(null);
+  const [goOfflineFn, setGoOfflineFn] = useState<(() => Promise<void>) | null>(null);
 
   const setGoOnline = useCallback((fn: (() => Promise<boolean>) | null) => {
     setGoOnlineFn(() => fn);
+  }, []);
+
+  const setGoOffline = useCallback((fn: (() => Promise<void>) | null) => {
+    setGoOfflineFn(() => fn);
   }, []);
 
   useEffect(() => {
@@ -54,8 +59,18 @@ export default function TabLayout() {
   };
 
   const logout = () => {
-    setAuthDone(false);
-    clearRiderSession();
+    // Mark the rider unavailable BEFORE clearing the session — goOffline needs a
+    // valid token to write rider_locations, and clearRiderSession wipes it. This
+    // stops the backend from offering deliveries to a rider who has logged out.
+    // Best-effort and time-boxed: a failed/slow availability write must never
+    // block or stall the logout (a stale row self-heals via the dispatch
+    // freshness window regardless).
+    const offline = Promise.resolve(goOfflineFn?.()).catch(() => {});
+    const bounded = Promise.race([offline, new Promise((r) => setTimeout(r, 3000))]);
+    void bounded.finally(() => {
+      setAuthDone(false);
+      clearRiderSession();
+    });
   };
 
   const renderContent = () => {
@@ -85,6 +100,8 @@ export default function TabLayout() {
             setStarting: setRiderStarting,
             goOnline: goOnlineFn,
             setGoOnline,
+            goOffline: goOfflineFn,
+            setGoOffline,
           }}>
           {renderContent()}
           <AnimatedSplashOverlay />

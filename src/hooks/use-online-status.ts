@@ -7,6 +7,9 @@ export type OnlineStatusValue = {
   setStarting: (starting: boolean) => void;
   goOnline: (() => Promise<boolean>) | null;
   setGoOnline: (fn: (() => Promise<boolean>) | null) => void;
+  /** Marks the rider unavailable server-side (used by the Offline toggle and on logout). */
+  goOffline: (() => Promise<void>) | null;
+  setGoOffline: (fn: (() => Promise<void>) | null) => void;
 };
 
 export const OnlineStatusContext = createContext<OnlineStatusValue>({
@@ -16,6 +19,8 @@ export const OnlineStatusContext = createContext<OnlineStatusValue>({
   setStarting: () => {},
   goOnline: null,
   setGoOnline: () => {},
+  goOffline: null,
+  setGoOffline: () => {},
 });
 
 export function useOnlineStatus() {

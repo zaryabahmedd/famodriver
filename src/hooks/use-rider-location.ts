@@ -1,12 +1,47 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { callBackend } from './backend-client';
 import { getRiderToken } from './rider-session';
 import { supabase } from './supabase-client';
 
 const WRITE_INTERVAL_MS = 10_000;
+
+// Guaranteed location ping cadence while online. watchPositionAsync only fires
+// on movement (distanceInterval), so a stationary rider — parked and waiting for
+// offers, which is exactly when they need to be dispatchable — would otherwise
+// stop refreshing rider_locations.updated_at and silently drop out of dispatch
+// (the backend only offers to riders whose location is recent). This heartbeat
+// re-sends the last known fix on a fixed schedule so updated_at always stays
+// fresh regardless of whether the device is moving.
+const HEARTBEAT_INTERVAL_MS = 25_000;
+
+/**
+ * Dev-only location override. Set EXPO_PUBLIC_MOCK_RIDER_LOCATION="lat,lng"
+ * (e.g. "6.5244,3.3792" for Lagos) so a tester whose real GPS is far from the
+ * test pickup reports a fixed coordinate instead — the backend's distance-based
+ * dispatch can then match them. Hard-gated on __DEV__ so it can never take
+ * effect in a production build even if the env var leaks in. Returns null
+ * (real GPS) in production, when unset, or when malformed.
+ */
+function parseMockRiderLocation(): { lat: number; lng: number } | null {
+  if (!__DEV__) return null;
+  const raw = process.env.EXPO_PUBLIC_MOCK_RIDER_LOCATION;
+  if (!raw) return null;
+  const [latStr, lngStr] = raw.split(',').map((s) => s.trim());
+  const lat = Number(latStr);
+  const lng = Number(lngStr);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    console.warn('[use-rider-location] ignoring invalid EXPO_PUBLIC_MOCK_RIDER_LOCATION', { raw });
+    return null;
+  }
+  console.warn('[use-rider-location] DEV mock location active — reporting fixed coords, not real GPS', { lat, lng });
+  return { lat, lng };
+}
+
+const MOCK_RIDER_LOCATION = parseMockRiderLocation();
 
 // Persists the rider's online *intent* across app restarts. Once a rider goes
 // online they stay online — through backgrounding, force-quit and relaunch —
@@ -79,6 +114,14 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
       const activeId = activeDeliveryIdRef.current;
       const available = opts?.available ?? activeId == null;
 
+      // Report the dev mock coordinate when set (see MOCK_RIDER_LOCATION); falls
+      // back to the real GPS fix otherwise. Applied here so it covers every
+      // write path — heartbeat, movement watcher, go-online — plus the live
+      // tracking broadcast below, so a mocked rider also appears near the pickup
+      // to the customer during an accepted job.
+      const writeLat = MOCK_RIDER_LOCATION?.lat ?? lat;
+      const writeLng = MOCK_RIDER_LOCATION?.lng ?? lng;
+
       // The rider proves identity with the session token (sent as a Bearer
       // header to the Node backend); the server derives the rider_id from it and
       // upserts only that rider's row (no spoofing).
@@ -94,12 +137,13 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
         rider_id: id,
         is_available: available,
         active_delivery_id: activeId,
-        lat,
-        lng,
+        lat: writeLat,
+        lng: writeLng,
+        mocked: MOCK_RIDER_LOCATION != null,
       });
       const { error: fnErr } = await callBackend(
         'rider-location',
-        { lat, lng, is_available: available },
+        { lat: writeLat, lng: writeLng, is_available: available },
         { token },
       );
       if (fnErr) {
@@ -123,7 +167,7 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
         broadcastChannel.current.send({
           type: 'broadcast',
           event: 'rider_location',
-          payload: { rider_id: id, delivery_id: activeId, lat, lng, at: now },
+          payload: { rider_id: id, delivery_id: activeId, lat: writeLat, lng: writeLng, at: now },
         });
       }
     },
@@ -229,6 +273,32 @@ export function useRiderLocation({ riderId, activeDeliveryId }: Options): RiderL
       }
     })();
   }, [riderId, goOnline]);
+
+  // Heartbeat: while online, re-send the last known fix on a fixed schedule so
+  // rider_locations.updated_at stays fresh even when the rider is stationary and
+  // the movement-driven watcher isn't firing. Without this, a parked rider goes
+  // stale within minutes and the backend stops offering them deliveries.
+  useEffect(() => {
+    if (!online) return;
+    const id = setInterval(() => {
+      const last = lastCoords.current;
+      if (last) void writeLocation(last.lat, last.lng, { force: true });
+    }, HEARTBEAT_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [online, writeLocation]);
+
+  // JS timers are suspended while the app is backgrounded, so the heartbeat
+  // pauses and the rider can age out of dispatch. When the app returns to the
+  // foreground, immediately push a fresh location so the rider re-enters the
+  // dispatch pool right away instead of waiting for the next heartbeat tick.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !online) return;
+      const last = lastCoords.current;
+      if (last) void writeLocation(last.lat, last.lng, { force: true });
+    });
+    return () => sub.remove();
+  }, [online, writeLocation]);
 
   // Tear everything down on unmount.
   useEffect(() => {

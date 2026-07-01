@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CompleteDelivery } from '@/components/complete-delivery';
 import { DeliveryCompleted } from '@/components/delivery-completed';
 import { DeliveryRequest } from '@/components/delivery-request';
+import { DeliveryRequestList } from '@/components/delivery-request-list';
 import { InTransit } from '@/components/in-transit';
 import { Notifications } from '@/components/notifications';
 import { PaymentMethod } from '@/components/payment-method';
@@ -174,6 +175,10 @@ export function RiderHome() {
     onlineStatus.setGoOnline(location.goOnline);
   }, [location.goOnline]);
 
+  useEffect(() => {
+    onlineStatus.setGoOffline(location.goOffline);
+  }, [location.goOffline]);
+
   const jobs = useRiderJobs({ riderId, online });
   const { count: activeOrdersCount, refresh: refreshActiveOrders } = useActiveOrders(riderId);
   usePushNotifications(riderId);
@@ -206,7 +211,7 @@ export function RiderHome() {
       setVehicleOpen(false);
       return true;
     }
-    if (jobPhase || jobs.pendingOffer) {
+    if (jobPhase || jobs.offers.length > 0) {
       return true;
     }
     Alert.alert('Exit app', 'Are you sure you want to exit the application?', [
@@ -437,16 +442,32 @@ export function RiderHome() {
         </View>
       )}
 
-      {jobs.pendingOffer && !jobs.activeDelivery && (
+      {/* Exactly one request: keep the rich full-screen card with the live map. */}
+      {jobs.offers.length === 1 && !jobs.activeDelivery && (
         <DeliveryRequest
-          offer={jobs.pendingOffer}
-          delivery={jobs.offerDelivery}
+          offer={jobs.offers[0].offer}
+          delivery={jobs.offers[0].delivery}
           onAccept={async () => {
-            const ok = await jobs.acceptOffer();
+            const ok = await jobs.acceptOffer(jobs.offers[0].offer.id);
             if (ok) setJobPhase('pickup');
           }}
           onDecline={() => {
-            void jobs.declineOffer();
+            void jobs.declineOffer(jobs.offers[0].offer.id);
+          }}
+        />
+      )}
+
+      {/* Several requests at once: responsive list so the rider can pick any. */}
+      {jobs.offers.length > 1 && !jobs.activeDelivery && (
+        <DeliveryRequestList
+          offers={jobs.offers}
+          busy={jobs.busy}
+          onAccept={async (offerId) => {
+            const ok = await jobs.acceptOffer(offerId);
+            if (ok) setJobPhase('pickup');
+          }}
+          onDecline={(offerId) => {
+            void jobs.declineOffer(offerId);
           }}
         />
       )}
